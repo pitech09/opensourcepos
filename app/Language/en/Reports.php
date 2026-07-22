@@ -142,7 +142,7 @@ return [
     "trans_sales"                             => "Sales",
     "trans_type"                              => "Transaction Type",
     "type"                                    => "Type",
-    "unit_price"                              => "Retail Price",
+    "unit_price"                              => "Unit Price",
     "used"                                    => "Points Used",
     "work_orders"                             => "Work Orders",
     "zero_and_less"                           => "Zero and less",

@@ -1,7 +1,7 @@
 ## Style Guide
 
-Brand name: `Open Source Point of Sale`\
-Short name: `OSPOS`
+Brand name: `Bophelo Innovations Point of Sale`\
+Short name: `BIPOS`
 
 Font used for lettermark: `Helvetica Light`
 

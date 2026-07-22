@@ -637,6 +637,7 @@ class Items extends Secure_Controller
         $qty_per_pack = parse_quantity($this->request->getPost('qty_per_pack') ?? '');
 
         // Save item data
+        $expiryDate = $this->request->getPost('expiry_date');
         $item_data = [
             'name'                  => $this->request->getPost('name'),
             'description'           => $this->request->getPost('description', FILTER_SANITIZE_FULL_SPECIAL_CHARS),
@@ -655,7 +656,8 @@ class Items extends Secure_Controller
             'pack_name'             => $this->request->getPost('pack_name') == null ? $default_pack_name : $this->request->getPost('pack_name'),
             'low_sell_item_id'      => $this->request->getPost('low_sell_item_id') === null ? $item_id : intval($this->request->getPost('low_sell_item_id')),
             'deleted'               => $this->request->getPost('is_deleted') != null,
-            'hsn_code'              => $this->request->getPost('hsn_code') === null ? '' : $this->request->getPost('hsn_code')
+            'hsn_code'              => $this->request->getPost('hsn_code') === null ? '' : $this->request->getPost('hsn_code'),
+            'expiry_date'           => empty($expiryDate) ? null : $expiryDate
         ];
 
         if ($item_data['item_type'] == ITEM_TEMP) {

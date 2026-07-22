@@ -55,7 +55,8 @@ class Item extends Model
         'qty_per_pack',
         'pack_name',
         'low_sell_item_id',
-        'hsn_code'
+        'hsn_code',
+        'expiry_date'
     ];
 
 
@@ -1145,5 +1146,26 @@ class Item extends Model
         }
 
         return $item_name;
+    }
+}
+
+    /**
+     * Gets items that are expiring within a specified number of days or have already expired
+     * @param int $days Number of days to look ahead for expiring items
+     * @return ResultInterface
+     */
+    public function get_expiring_items(int $days = 30): ResultInterface
+    {
+        $builder = $this->db->table('items');
+        $builder->select('items.*');
+        $builder->select('MAX(suppliers.company_name) AS company_name');
+        $builder->join('suppliers', 'suppliers.person_id = items.supplier_id', 'left');
+        $builder->where('items.deleted', 0);
+        $builder->where('items.expiry_date IS NOT NULL');
+        $builder->where('items.expiry_date <=', date('Y-m-d', strtotime("+$days days")));
+        $builder->groupBy('items.item_id');
+        $builder->orderBy('items.expiry_date', 'asc');
+
+        return $builder->get();
     }
 }

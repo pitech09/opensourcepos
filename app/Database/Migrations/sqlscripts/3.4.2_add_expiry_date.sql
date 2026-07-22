@@ -1,0 +1,1 @@
+ALTER TABLE `ospos_items` ADD COLUMN `expiry_date` DATE DEFAULT NULL AFTER `hsn_code`;

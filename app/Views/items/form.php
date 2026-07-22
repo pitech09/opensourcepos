@@ -298,6 +298,21 @@
             </div>
         <?php endif; ?>
 
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Items.expiry_date'), 'expiry_date', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-8">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-addon input-sm"><span class="glyphicon glyphicon-calendar"></span></span>
+                    <?= form_input([
+                        'name'        => 'expiry_date',
+                        'id'          => 'expiry_date',
+                        'class'       => 'form-control input-sm datepicker',
+                        'value'       => isset($item_info->expiry_date) && $item_info->expiry_date !== null ? $item_info->expiry_date : ''
+                    ]) ?>
+                </div>
+            </div>
+        </div>
+
         <?php foreach ($stock_locations as $key => $location_detail) { ?>
             <div class="form-group form-group-sm">
                 <?= form_label(lang('Items.quantity') . ' ' . $location_detail['location_name'], "quantity_$key", ['class' => 'required control-label col-xs-3']) ?>

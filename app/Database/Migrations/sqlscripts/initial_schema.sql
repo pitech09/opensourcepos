@@ -59,7 +59,7 @@ INSERT INTO `ospos_app_config` (`key`, `value`) VALUES
     ('lines_per_page', '25'),
     ('dateformat', 'm/d/Y'),
     ('timeformat', 'H:i:s'),
-    ('currency_symbol', '$'),
+    ('currency_symbol', 'M'),
     ('number_locale', 'en_US'),
     ('thousands_separator', '1'),
     ('currency_decimals', '2'),
