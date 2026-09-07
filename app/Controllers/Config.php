@@ -158,16 +158,18 @@ class Config extends Secure_Controller
             $file = file_get_contents('license/npm-prod.LICENSES');
             $array = json_decode($file, true);
 
-            foreach ($array as $dependency) {
-                $license[$i]['text'] .= "library: {$dependency['name']}\n";
-                $license[$i]['text'] .= "authors: {$dependency['author']}\n";
-                $license[$i]['text'] .= "website: {$dependency['homepage']}\n";
-                $license[$i]['text'] .= "version: {$dependency['installedVersion']}\n";
-                $license[$i]['text'] .= "license: {$dependency['licenseType']}\n";
+            if (is_array($array)) {
+                foreach ($array as $dependency) {
+                    $license[$i]['text'] .= "library: {$dependency['name']}\n";
+                    $license[$i]['text'] .= "authors: {$dependency['author']}\n";
+                    $license[$i]['text'] .= "website: {$dependency['homepage']}\n";
+                    $license[$i]['text'] .= "version: {$dependency['installedVersion']}\n";
+                    $license[$i]['text'] .= "license: {$dependency['licenseType']}\n";
 
-                $license[$i]['text'] .= "\n";
+                    $license[$i]['text'] .= "\n";
+                }
+                $license[$i]['text'] = rtrim($license[$i]['text'], "\n");
             }
-            $license[$i]['text'] = rtrim($license[$i]['text'], "\n");
         }
 
         if ($npmDev) {
@@ -178,16 +180,18 @@ class Config extends Secure_Controller
             $file = file_get_contents('license/npm-dev.LICENSES');
             $array = json_decode($file, true);
 
-            foreach ($array as $dependency) {
-                $license[$i]['text'] .= "library: {$dependency['name']}\n";
-                $license[$i]['text'] .= "authors: {$dependency['author']}\n";
-                $license[$i]['text'] .= "website: {$dependency['homepage']}\n";
-                $license[$i]['text'] .= "version: {$dependency['installedVersion']}\n";
-                $license[$i]['text'] .= "license: {$dependency['licenseType']}\n";
+            if (is_array($array)) {
+                foreach ($array as $dependency) {
+                    $license[$i]['text'] .= "library: {$dependency['name']}\n";
+                    $license[$i]['text'] .= "authors: {$dependency['author']}\n";
+                    $license[$i]['text'] .= "website: {$dependency['homepage']}\n";
+                    $license[$i]['text'] .= "version: {$dependency['installedVersion']}\n";
+                    $license[$i]['text'] .= "license: {$dependency['licenseType']}\n";
 
-                $license[$i]['text'] .= "\n";
+                    $license[$i]['text'] .= "\n";
+                }
+                $license[$i]['text'] = rtrim($license[$i]['text'], "\n");
             }
-            $license[$i]['text'] = rtrim($license[$i]['text'], "\n");
         }
 
         return $license;
@@ -970,14 +974,17 @@ class Config extends Secure_Controller
      */
     public function postSaveShortcuts(): ResponseInterface
     {
-        $allowedShortcuts = array_keys($this->sale_lib->getKeyShortcutsOptions());
         $currentShortcuts = $this->sale_lib->getKeyShortcuts();
         $batchSaveData = [];
 
         foreach ($currentShortcuts as $name => $shortcut) {
             $postedValue = trim((string)$this->request->getPost('key_' . $name));
 
-            if (!in_array($postedValue, $allowedShortcuts, true)) {
+            // Validate format: keyCode | Label (e.g., "187 | +" or "112 | F1")
+            if ($postedValue !== '' && preg_match('/^\d+\s*\|\s*.+$/', $postedValue)) {
+                // Valid format, use the posted value
+            } else {
+                // Invalid format, keep the current value
                 $postedValue = $shortcut['value'];
             }
 

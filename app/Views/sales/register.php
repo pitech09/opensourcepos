@@ -125,6 +125,12 @@ helper('url');
                     <?= form_input(['name' => 'item', 'id' => 'item', 'class' => 'form-control input-sm', 'size' => '50', 'tabindex' => ++$tabindex]) ?>
                     <span class="ui-helper-hidden-accessible" role="status"></span>
                 </li>
+                <li class="pull-left" style="margin-left: 10px;">
+                    <label for="item_quantity" class="control-label"><?= lang('Sales.quantity') ?></label>
+                </li>
+                <li class="pull-left">
+                    <?= form_input(['name' => 'quantity', 'id' => 'item_quantity', 'class' => 'form-control input-sm', 'type' => 'number', 'min' => '0.001', 'step' => '1', 'value' => '1', 'size' => '5', 'tabindex' => ++$tabindex, 'title' => 'Use +/- keys to adjust quantity']) ?>
+                </li>
                 <li class="pull-right">
                     <button id="new_item_button" class="btn btn-info btn-sm pull-right modal-dlg" data-btn-new="<?= lang('Common.new') ?>" data-btn-submit="<?= lang('Common.submit') ?>" data-href="<?= "items/view" ?>" title="<?= lang(ucfirst($controller_name) . ".new_item") ?>">
                         <span class="glyphicon glyphicon-tag">&nbsp;</span><?= lang(ucfirst($controller_name) . ".new_item") ?>
@@ -619,7 +625,9 @@ helper('url');
         complete: keyboardShortcuts?.complete?.code ?? null,
         finish: keyboardShortcuts?.finish?.code ?? null,
         help: keyboardShortcuts?.help?.code ?? null,
-        cancel: keyboardShortcuts?.cancel?.code ?? null
+        cancel: keyboardShortcuts?.cancel?.code ?? null,
+        increment: keyboardShortcuts?.increment?.code ?? 187,
+        decrement: keyboardShortcuts?.decrement?.code ?? 189
     };
 
     $(document).ready(function() {
@@ -911,12 +919,20 @@ helper('url');
     }
 
     // Add Keyboard Shortcuts/Hotkeys to Sale Register
-    document.body.onkeyup = function(event) {
+    document.addEventListener('keyup', function(event) {
+        // Don't trigger shortcuts when modal is open
         if ($(event.target).closest('.modal').length || $('.modal.in').length) {
             return;
         }
+
+        var keyCode = event.keyCode || event.which;
+
+        // Check for ALT key combination shortcuts
         if (event.altKey) {
-            switch (event.keyCode) {
+            switch (keyCode) {
+                case shortcutCodes.cancel:
+                    $("#cancel_sale_button").click();
+                    break;
                 case shortcutCodes.items:
                     $("#item").focus();
                     $("#item").select();
@@ -954,12 +970,31 @@ helper('url');
             }
         }
 
-        switch (event.keyCode) {
-            case shortcutCodes.cancel:
-                $("#cancel_sale_button").click();
-                break;
+        // Quantity increment/decrement with configured shortcut keys
+        // Only when item field or quantity field is focused
+        var isItemField = $(event.target).attr('id') === 'item';
+        var isQuantityField = $(event.target).attr('id') === 'item_quantity';
+
+        if (isItemField || isQuantityField) {
+            var $quantityField = $('#item_quantity');
+            var currentQty = parseFloat($quantityField.val()) || 1;
+
+            // Check for increment shortcut (also support numpad +)
+            if (keyCode === shortcutCodes.increment || (shortcutCodes.increment === 187 && keyCode === 107)) {
+                event.preventDefault();
+                $quantityField.val(currentQty + 1);
+                $quantityField.focus();
+            }
+            // Check for decrement shortcut (also support numpad -)
+            else if (keyCode === shortcutCodes.decrement || (shortcutCodes.decrement === 189 && keyCode === 109)) {
+                event.preventDefault();
+                if (currentQty > 1) {
+                    $quantityField.val(currentQty - 1);
+                }
+                $quantityField.focus();
+            }
         }
-    }
+    });
 </script>
 
 <?= view('partial/footer') ?>

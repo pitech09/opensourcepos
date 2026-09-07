@@ -24,16 +24,18 @@ use ReflectionException;
 class Sale_lib
 {
     private const KEY_SHORTCUT_DEFAULTS = [
-        'cancel'    => ['value' => '27 | ESC', 'code' => 27, 'label' => 'ESC'],
-        'items'     => ['value' => '49 | ALT + 1', 'code' => 49, 'label' => 'ALT + 1'],
-        'customers' => ['value' => '50 | ALT + 2', 'code' => 50, 'label' => 'ALT + 2'],
-        'suspend'   => ['value' => '51 | ALT + 3', 'code' => 51, 'label' => 'ALT + 3'],
-        'suspended' => ['value' => '52 | ALT + 4', 'code' => 52, 'label' => 'ALT + 4'],
-        'amount'    => ['value' => '53 | ALT + 5', 'code' => 53, 'label' => 'ALT + 5'],
-        'payment'   => ['value' => '54 | ALT + 6', 'code' => 54, 'label' => 'ALT + 6'],
-        'complete'  => ['value' => '55 | ALT + 7', 'code' => 55, 'label' => 'ALT + 7'],
-        'finish'    => ['value' => '56 | ALT + 8', 'code' => 56, 'label' => 'ALT + 8'],
-        'help'      => ['value' => '57 | ALT + 9', 'code' => 57, 'label' => 'ALT + 9'],
+        'cancel'    => ['value' => '49 | ALT + 1', 'code' => 49, 'label' => 'ALT + 1'],
+        'items'     => ['value' => '50 | ALT + 2', 'code' => 50, 'label' => 'ALT + 2'],
+        'customers' => ['value' => '51 | ALT + 3', 'code' => 51, 'label' => 'ALT + 3'],
+        'suspend'   => ['value' => '52 | ALT + 4', 'code' => 52, 'label' => 'ALT + 4'],
+        'suspended' => ['value' => '53 | ALT + 5', 'code' => 53, 'label' => 'ALT + 5'],
+        'amount'    => ['value' => '54 | ALT + 6', 'code' => 54, 'label' => 'ALT + 6'],
+        'payment'   => ['value' => '55 | ALT + 7', 'code' => 55, 'label' => 'ALT + 7'],
+        'complete'  => ['value' => '56 | ALT + 8', 'code' => 56, 'label' => 'ALT + 8'],
+        'finish'    => ['value' => '57 | ALT + 9', 'code' => 57, 'label' => 'ALT + 9'],
+        'help'      => ['value' => '48 | ALT + 0', 'code' => 48, 'label' => 'ALT + 0'],
+        'increment' => ['value' => '187 | +', 'code' => 187, 'label' => '+'],
+        'decrement' => ['value' => '189 | -', 'code' => 189, 'label' => '-'],
     ];
 
     private Attribute $attribute;

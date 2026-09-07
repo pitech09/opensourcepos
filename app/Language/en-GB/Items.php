@@ -77,6 +77,8 @@ return [
     "number_information"                 => "Item Number",
     "number_required"                    => "Barcode is a required field.",
     "one_or_multiple"                    => "item(s)",
+    "final_profit"                       => "Profit Per Unit",
+    "current_profit"                     => "Total Profit (Sold)",
     "pack_name"                          => "Pack Name",
     "qty_per_pack"                       => "Quantity per pack",
     "quantity"                           => "Quantity",

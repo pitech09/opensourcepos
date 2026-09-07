@@ -1147,7 +1147,6 @@ class Item extends Model
 
         return $item_name;
     }
-}
 
     /**
      * Gets items that are expiring within a specified number of days or have already expired
@@ -1158,7 +1157,7 @@ class Item extends Model
     {
         $builder = $this->db->table('items');
         $builder->select('items.*');
-        $builder->select('MAX(suppliers.company_name) AS company_name');
+        $builder->select('MAX(company_name) AS company_name');
         $builder->join('suppliers', 'suppliers.person_id = items.supplier_id', 'left');
         $builder->where('items.deleted', 0);
         $builder->where('items.expiry_date IS NOT NULL');
@@ -1167,5 +1166,20 @@ class Item extends Model
         $builder->orderBy('items.expiry_date', 'asc');
 
         return $builder->get();
+    }
+
+    /**
+     * Gets the total quantity sold for an item
+     * @param int $item_id The item ID
+     * @return float Total quantity sold
+     */
+    public function get_total_sold_quantity(int $item_id): float
+    {
+        $builder = $this->db->table('sales_items');
+        $builder->selectSum('quantity_purchased');
+        $builder->where('item_id', $item_id);
+        $result = $builder->get()->getRow();
+
+        return (float) ($result->quantity_purchased ?? 0);
     }
 }

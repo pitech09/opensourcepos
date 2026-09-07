@@ -88,6 +88,8 @@ return [
     "number_required"                    => "Barcode is a required field.",
     "one_or_multiple"                    => "item(s)",
     "pack_name"                          => "Pack Name",
+    "final_profit"                       => "Profit Per Unit",
+    "current_profit"                     => "Total Profit (Sold)",
     "qty_per_pack"                       => "Quantity per pack",
     "quantity"                           => "Quantity",
     "quantity_number"                    => "Quantity must be a number.",

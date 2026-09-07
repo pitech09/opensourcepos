@@ -125,6 +125,8 @@ return [
     'key_system'                        => 'System Shortcuts',
     'key_tendered'                      => 'Edit Amount Tendered',
     'key_title'                         => 'Sales Keyboard Shortcuts',
+    'key_increment'                     => 'Increment Item Quantity',
+    'key_decrement'                     => 'Decrement Item Quantity',
     'mc'                                => '',
     'mode'                              => 'Register Mode',
     'must_enter_numeric'                => 'Amount Tendered must be a number.',

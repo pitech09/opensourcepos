@@ -19,7 +19,9 @@ $shortcutLabels = [
     'payment'   => lang('Sales.key_payment'),
     'complete'  => lang('Sales.key_finish_sale'),
     'finish'    => lang('Sales.key_finish_quote'),
-    'help'      => lang('Sales.key_help_modal')
+    'help'      => lang('Sales.key_help_modal'),
+    'increment' => lang('Sales.key_increment'),
+    'decrement' => lang('Sales.key_decrement')
 ];
 ?>
 
@@ -36,12 +38,12 @@ $shortcutLabels = [
                             <?= form_label($label, 'key_' . $name, ['class' => 'control-label col-xs-3']) ?>
                             <div class="col-xs-4">
                                 <?php $keyboardShortcutSelectedValue = $keyboardShortcuts[$name]['value'] ?? ''; ?>
-                                <?= form_dropdown(
+                                <?= form_input(
                                     'key_' . $name,
-                                    $keyboardShortcutOptions,
                                     $keyboardShortcutSelectedValue,
-                                    'class="form-control input-sm"'
+                                    'class="form-control input-sm" placeholder="e.g., 187 | +"'
                                 ) ?>
+                                <small class="help-block">Format: keyCode | Label (e.g., "187 | +" or "112 | F1")</small>
                             </div>
                         </div>
                     <?php endforeach; ?>

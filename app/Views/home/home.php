@@ -12,6 +12,7 @@
 
 <h3 class="text-center"><?= lang('Common.welcome_message') ?></h3>
 
+
 <div id="home_module_list">
     <?php foreach($allowed_modules as $module) { ?>
         <div class="module_item" title="<?= lang("Module.$module->module_id" . '_desc') ?>">
@@ -20,5 +21,35 @@
         </div>
     <?php } ?>
 </div>
+
+
+
+<?php if (!empty($expiring_items)): ?>
+<div class="alert" role="alert">
+    <h4 class="alert-heading"><?= lang('Items.expiring_soon') ?></h4>
+    <p><?= lang('Items.expiry_warning') ?></p>
+    <table class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th><?= lang('Common.id') ?></th>
+                <th><?= lang('Items.name') ?></th>
+                <th><?= lang('Items.category') ?></th>
+                <th><?= lang('Items.expiry_date') ?></th>
+                
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($expiring_items as $item): ?>
+            <tr>
+                <td><?= esc($item->item_id) ?></td>
+                <td><?= esc($item->name) ?></td>
+                <td><?= esc($item->category) ?></td>
+                <td><?= esc($item->expiry_date) ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+<?php endif; ?>
 
 <?= view('partial/footer') ?>

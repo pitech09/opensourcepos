@@ -19,9 +19,9 @@ class Home extends Secure_Controller
     public function getIndex(): string
     {
         $logged_in = $this->employee->is_logged_in();
-        $item = model(App\Models\Item::class);
+        $item = model(\App\Models\Item::class);
         $data["expiring_items"] = $item->get_expiring_items(30)->getResult();
-        return view('home/home');
+        return view('home/home', $data);
     }
 
     /**
