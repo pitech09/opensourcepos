@@ -40,3 +40,10 @@ $routes->add('reports/specific_customers', 'Reports::specific_customer_input');
 $routes->add('reports/specific_employees', 'Reports::specific_employee_input');
 $routes->add('reports/specific_discounts', 'Reports::specific_discount_input');
 $routes->add('reports/specific_suppliers', 'Reports::specific_supplier_input');
+
+// Notification AJAX endpoints
+$routes->get('notifications/low_stock_count', 'Notifications::getLowStockCount');
+$routes->get('notifications/expiry_count', 'Notifications::getExpiryCount');
+
+// Expiry report route
+$routes->add('reports/expiry', 'Reports::expiry');

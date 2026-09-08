@@ -118,7 +118,7 @@ class Expenses extends Secure_Controller
         $data['expense_categories'] = $expense_categories;
 
         if ($expense_id == NEW_ENTRY) {
-            $data['expenses_info']->date = date('Y-m-d H:i:s');
+            $data['expenses_info']->date = now();
             $data['expenses_info']->employee_id = $current_employee_id;
         }
 

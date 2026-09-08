@@ -99,6 +99,20 @@ if (isset($error)) {
                 </div>
             </div>
         <?php } ?>
+
+        <?php if (in_array('reports_inventory', $permission_ids, true)) { ?>
+            <div class="panel panel-primary">
+                <div class="panel-heading">
+                    <h3 class="panel-title"><span class="glyphicon glyphicon-time">&nbsp;</span><?= lang('Reports.alerts_reports') ?></h3>
+                </div>
+                <div class="list-group">
+                    <?php
+                    $expiry_report = get_report_link('reports_expiry');
+                    ?>
+                    <a class="list-group-item" href="<?= $expiry_report['path'] ?>"><?= esc($expiry_report['label']) ?></a>
+                </div>
+            </div>
+        <?php } ?>
     </div>
 </div>
 

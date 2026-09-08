@@ -84,6 +84,68 @@
             </div>
 
             <div class="form-group form-group-sm">
+                <?= form_label(lang('Config.default_pricing_method'), 'default_pricing_method', ['class' => 'control-label col-xs-2']) ?>
+                <div class="col-xs-2">
+                    <?= form_dropdown(
+                        'default_pricing_method',
+                        [
+                            'margin' => lang('Config.pricing_method_margin'),
+                            'markup' => lang('Config.pricing_method_markup')
+                        ],
+                        $config['default_pricing_method'] ?? 'margin',
+                        ['id' => 'default_pricing_method', 'class' => 'form-control input-sm']
+                    ) ?>
+            </div>
+            <div class="col-xs-4 help-block" style="margin-top: 0;">
+                <?= lang('Config.default_pricing_method_help') ?>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Config.default_margin_percent'), 'default_margin_percent', ['class' => 'control-label col-xs-2']) ?>
+            <div class="col-xs-2">
+                <div class="input-group">
+                    <?= form_input([
+                        'name'  => 'default_margin_percent',
+                        'id'    => 'default_margin_percent',
+                        'class' => 'form-control input-sm',
+                        'type'  => 'number',
+                        'min'   => 0,
+                        'max'   => 99.99,
+                        'step'  => '0.01',
+                        'value' => $config['default_margin_percent'] ?? '20'
+                    ]) ?>
+                    <span class="input-group-addon input-sm"><b>%</b></span>
+                </div>
+            </div>
+            <div class="col-xs-4 help-block" style="margin-top: 0;">
+                <?= lang('Config.default_margin_percent_help') ?>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Config.default_markup_percent'), 'default_markup_percent', ['class' => 'control-label col-xs-2']) ?>
+            <div class="col-xs-2">
+                <div class="input-group">
+                    <?= form_input([
+                        'name'  => 'default_markup_percent',
+                        'id'    => 'default_markup_percent',
+                        'class' => 'form-control input-sm',
+                        'type'  => 'number',
+                        'min'   => 0,
+                        'max'   => 999.99,
+                        'step'  => '0.01',
+                        'value' => $config['default_markup_percent'] ?? '25'
+                    ]) ?>
+                    <span class="input-group-addon input-sm"><b>%</b></span>
+                </div>
+            </div>
+            <div class="col-xs-4 help-block" style="margin-top: 0;">
+                <?= lang('Config.default_markup_percent_help') ?>
+            </div>
+        </div>
+
+            <div class="form-group form-group-sm">
                 <?= form_label(lang('Config.default_receivings_discount'), 'default_receivings_discount', ['class' => 'control-label col-xs-2 required']) ?>
                 <div class="col-xs-2">
                     <div class="input-group">
@@ -152,6 +214,21 @@
                         'min'   => 10,
                         'max'   => 1000,
                         'value' => $config['lines_per_page']
+                    ]) ?>
+                </div>
+            </div>
+
+            <div class="form-group form-group-sm">
+                <?= form_label(lang('Config.expiry_warning_days'), 'expiry_warning_days', ['class' => 'control-label col-xs-2 required']) ?>
+                <div class="col-xs-2">
+                    <?= form_input([
+                        'name'  => 'expiry_warning_days',
+                        'id'    => 'expiry_warning_days',
+                        'class' => 'form-control input-sm required',
+                        'type'  => 'number',
+                        'min'   => 0,
+                        'max'   => 365,
+                        'value' => $config['expiry_warning_days'] ?? 30
                     ]) ?>
                 </div>
             </div>
@@ -495,6 +572,10 @@
                     required: true,
                     remote: "<?= "$controller_name/checkNumeric" ?>"
                 },
+                expiry_warning_days: {
+                    required: true,
+                    remote: "<?= "$controller_name/checkNumeric" ?>"
+                },
                 gcaptcha_site_key: {
                     required: "#gcaptcha_enable:checked"
                 },
@@ -511,6 +592,10 @@
                 lines_per_page: {
                     required: "<?= lang('Config.lines_per_page_required') ?>",
                     number: "<?= lang('Config.lines_per_page_number') ?>"
+                },
+                expiry_warning_days: {
+                    required: "<?= lang('Config.expiry_warning_days_required') ?>",
+                    number: "<?= lang('Config.expiry_warning_days_number') ?>"
                 },
                 gcaptcha_site_key: {
                     required: "<?= lang('Config.gcaptcha_site_key_required') ?>"

@@ -125,12 +125,7 @@ helper('url');
                     <?= form_input(['name' => 'item', 'id' => 'item', 'class' => 'form-control input-sm', 'size' => '50', 'tabindex' => ++$tabindex]) ?>
                     <span class="ui-helper-hidden-accessible" role="status"></span>
                 </li>
-                <li class="pull-left" style="margin-left: 10px;">
-                    <label for="item_quantity" class="control-label"><?= lang('Sales.quantity') ?></label>
-                </li>
-                <li class="pull-left">
-                    <?= form_input(['name' => 'quantity', 'id' => 'item_quantity', 'class' => 'form-control input-sm', 'type' => 'number', 'min' => '0.001', 'step' => '1', 'value' => '1', 'size' => '5', 'tabindex' => ++$tabindex, 'title' => 'Use +/- keys to adjust quantity']) ?>
-                </li>
+
                 <li class="pull-right">
                     <button id="new_item_button" class="btn btn-info btn-sm pull-right modal-dlg" data-btn-new="<?= lang('Common.new') ?>" data-btn-submit="<?= lang('Common.submit') ?>" data-href="<?= "items/view" ?>" title="<?= lang(ucfirst($controller_name) . ".new_item") ?>">
                         <span class="glyphicon glyphicon-tag">&nbsp;</span><?= lang(ucfirst($controller_name) . ".new_item") ?>
@@ -611,6 +606,24 @@ helper('url');
     </div>
 </div>
 
+<style>
+    /* Highlight for keyboard-selected item in the autocomplete search results */
+    ul.ui-autocomplete li.ui-menu-item .ui-menu-item-wrapper.ui-state-active {
+        background-color: #f5f5f5;
+        border-left: 3px solid #007bff;
+        font-weight: bold;
+    }
+
+    /* Highlight for the selected sale line (last added or clicked) */
+    #cart_contents tr.selected-line > td {
+        background-color: #f5f5f5;
+    }
+
+    #cart_contents tr.selected-line > td:first-child {
+        border-left: 3px solid #007bff;
+    }
+</style>
+
 <script type="text/javascript">
     const keyboardShortcuts = <?= json_encode($keyboardShortcuts ?? []) ?>;
     const paymentsCoverTotal = <?= json_encode((bool) $payments_cover_total) ?>;
@@ -711,6 +724,16 @@ helper('url');
 
         $('#item').keypress(function(e) {
             if (e.which == 13) {
+                // If an autocomplete suggestion is currently highlighted with
+                // the arrow keys, the autocomplete select handler has already
+                // added the item to the sale - don't submit the form again
+                // (which would add the item twice).
+                const itemAutocomplete = $('#item').autocomplete('instance');
+
+                if (itemAutocomplete && itemAutocomplete.menu.element.find('.ui-menu-item-wrapper.ui-state-active').length) {
+                    return false;
+                }
+
                 $('#add_item_form').submit();
                 return false;
             }
@@ -874,6 +897,121 @@ helper('url');
             $('#cart_' + $(this).attr('data-line')).append($(input));
             $('#cart_' + $(this).attr('data-line')).submit();
         });
+
+        // ----- Keyboard-driven sale line selection & +/- quantity adjustment -----
+        // The cart is rendered newest-first, so the first item row is the last
+        // added item. Selecting a row allows the +/- shortcut keys to adjust
+        // that line's quantity without touching the mouse.
+        var $selectedLine = null;
+
+        const getCartItemRows = function() {
+            // Only rows that belong to a cart line (they contain an item_id input)
+            return $('#cart_contents tr').has("input[name='item_id']");
+        };
+
+        const selectSaleLine = function($row) {
+            getCartItemRows().removeClass('selected-line');
+            $selectedLine = $row;
+            $selectedLine.addClass('selected-line');
+        };
+
+        const adjustSelectedQuantity = function(delta) {
+            if (!$selectedLine || !$selectedLine.length) return;
+
+            // Serialized items (and any line with a hidden quantity) can't be
+            // quantity-adjusted
+            const $quantityInput = $selectedLine.find("input[name='quantity']").filter("input[type='text'], input[type='number']");
+
+            if (!$quantityInput.length) return;
+
+            const newQty = (parseFloat($quantityInput.val()) || 0) + delta;
+
+            if (newQty <= 0) {
+                // Decrementing the last unit removes the line
+                const form_id = $selectedLine.prevAll('form:first').attr('id') || '';
+                const line = form_id.replace('cart_', '');
+
+                if (line !== '') {
+                    $.post("<?= site_url('sales/deleteItem/'); ?>" + line, redirect);
+                }
+
+                return;
+            }
+
+            $quantityInput.val(newQty);
+
+            // Persist the change by submitting the line's edit form
+            // (same pattern as changing a quantity field manually)
+            $selectedLine.prevAll('form:first').submit();
+        };
+
+        // Select the last added line on page load (page reloads after every
+        // cart change, so this also keeps the last added item selected)
+        const $initialRows = getCartItemRows();
+
+        if ($initialRows.length) {
+            selectSaleLine($initialRows.first());
+        }
+
+        // Allow manually selecting a line by clicking it (delegated, since
+        // rows are re-rendered on every cart change)
+        $('#cart_contents').on('click', 'tr', function() {
+            if ($(this).find("input[name='item_id']").length) {
+                selectSaleLine($(this));
+            }
+        });
+
+        // +/- adjusts the selected line's quantity. When the focus is in the
+        // item search or next-item quantity field, +/- adjusts the selected
+        // sale line (the last added item) if the cart has items, otherwise it
+        // falls back to adjusting the next item's quantity (pre-add behavior).
+        // Any other input/textarea/select keeps its normal typing behavior, so
+        // +/- never interferes with typing. No-op when no modal is open.
+        $(document).on('keydown', function(event) {
+            const keyCode = event.keyCode || event.which;
+            const isIncrement = keyCode === shortcutCodes.increment || (shortcutCodes.increment === 187 && keyCode === 107);
+            const isDecrement = keyCode === shortcutCodes.decrement || (shortcutCodes.decrement === 189 && keyCode === 109);
+
+            if (!isIncrement && !isDecrement) return;
+
+            if ($(event.target).closest('.modal').length || $('.modal.in').length) {
+                return;
+            }
+
+            const delta = isIncrement ? 1 : -1;
+            const target = event.target;
+            const isItemField = $(target).attr('id') === 'item';
+            const isQuantityField = $(target).attr('id') === 'item_quantity';
+
+            if (isItemField || isQuantityField) {
+                event.preventDefault();
+
+                if (getCartItemRows().length) {
+                    adjustSelectedQuantity(delta);
+                } else {
+                    const $quantityField = $('#item_quantity');
+                    const currentQty = parseFloat($quantityField.val()) || 1;
+
+                    if (!(delta < 0 && currentQty <= 1)) {
+                        $quantityField.val(currentQty + delta);
+                    }
+
+                    $quantityField.focus();
+                }
+
+                return;
+            }
+
+            // Ignore keys pressed while typing in any other field
+            if ($(target).is('input, textarea, select') || target.isContentEditable) {
+                return;
+            }
+
+            if (!getCartItemRows().length) return;
+
+            event.preventDefault();
+            adjustSelectedQuantity(delta);
+        });
     });
 
     function check_payment_type() {
@@ -970,30 +1108,9 @@ helper('url');
             }
         }
 
-        // Quantity increment/decrement with configured shortcut keys
-        // Only when item field or quantity field is focused
-        var isItemField = $(event.target).attr('id') === 'item';
-        var isQuantityField = $(event.target).attr('id') === 'item_quantity';
-
-        if (isItemField || isQuantityField) {
-            var $quantityField = $('#item_quantity');
-            var currentQty = parseFloat($quantityField.val()) || 1;
-
-            // Check for increment shortcut (also support numpad +)
-            if (keyCode === shortcutCodes.increment || (shortcutCodes.increment === 187 && keyCode === 107)) {
-                event.preventDefault();
-                $quantityField.val(currentQty + 1);
-                $quantityField.focus();
-            }
-            // Check for decrement shortcut (also support numpad -)
-            else if (keyCode === shortcutCodes.decrement || (shortcutCodes.decrement === 189 && keyCode === 109)) {
-                event.preventDefault();
-                if (currentQty > 1) {
-                    $quantityField.val(currentQty - 1);
-                }
-                $quantityField.focus();
-            }
-        }
+        // Quantity increment/decrement with configured shortcut keys is handled
+        // in the keydown handler below (inside $(document).ready), which
+        // adjusts either the selected sale line or the next item's quantity.
     });
 </script>
 

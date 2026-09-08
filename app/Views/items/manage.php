@@ -77,6 +77,10 @@ use App\Models\Employee;
 <?= view('partial/table_filter_persistence', ['additional_params' => ['stock_location']]) ?>
 
 <div id="title_bar" class="btn-toolbar print_hide">
+    <a class="btn btn-info btn-sm pull-right" href="<?= site_url('items/batches') ?>" title="<?= lang('Items.batches') ?>">
+        <span class="glyphicon glyphicon-th-list">&nbsp;</span><?= lang('Items.batches') ?>
+    </a>
+
     <button class="btn btn-info btn-sm pull-right modal-dlg" data-btn-submit="<?= lang('Common.submit') ?>" data-href="<?= "$controller_name/csvImport" ?>" title="<?= lang('Items.import_items_csv') ?>">
         <span class="glyphicon glyphicon-import">&nbsp;</span><?= lang('Common.import_csv') ?>
     </button>

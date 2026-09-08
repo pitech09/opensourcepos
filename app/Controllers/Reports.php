@@ -3,7 +3,10 @@
 namespace App\Controllers;
 
 use App\Models\Attribute;
+use App\Models\Appconfig;
 use App\Models\Customer;
+use App\Models\Item;
+use App\Models\Item_batch;
 use App\Models\Stock_location;
 use App\Models\Supplier;
 use App\Models\Reports\Detailed_receivings;
@@ -50,6 +53,9 @@ class Reports extends Secure_Controller
     private Supplier $supplier;
     private Detailed_receivings $detailed_receivings;
     private Inventory_summary $inventory_summary;
+    private Item $item;
+    private Item_batch $item_batch;
+    private Appconfig $appconfig;
 
     public function __construct()
     {
@@ -77,6 +83,9 @@ class Reports extends Secure_Controller
         $this->supplier = model(Supplier::class);
         $this->detailed_receivings = model(Detailed_receivings::class);
         $this->inventory_summary = model(Inventory_summary::class);
+        $this->item = model(Item::class);
+        $this->item_batch = model(Item_batch::class);
+        $this->appconfig = model(Appconfig::class);
 
         if (sizeof($exploder) > 1) {
             preg_match('/(?:inventory)|([^_.]*)(?:_graph|_row)?$/', $method_name, $matches);
@@ -2105,6 +2114,57 @@ class Reports extends Secure_Controller
             'headers'      => $this->inventory_summary->getDataColumns(),
             'data'         => $tabular_data,
             'summary_data' => $this->inventory_summary->getSummaryData($report_data)
+        ];
+
+        return view('reports/tabular', $data);
+    }
+
+    /**
+     * Expiry report - lists batches expiring within configured days
+     *
+     * @return string
+     */
+    public function expiry(): string
+    {
+        $this->clearCache();
+
+        $days_threshold = (int) $this->appconfig->get_value('expiry_warning_days', '30');
+
+        $report_data = $this->item_batch->get_expiring_batches($days_threshold);
+
+        $tabular_data = [];
+        foreach ($report_data as $row) {
+            $expiry_date = strtotime($row['expiry_date']);
+            $today = strtotime(date('Y-m-d'));
+            $days_until_expiry = floor(($expiry_date - $today) / (60 * 60 * 24));
+
+            $tabular_data[] = [
+                'item_name'         => $row['name'],
+                'item_number'       => $row['item_number'],
+                'category'          => $row['category'],
+                'batch_quantity'    => to_quantity_decimals($row['remaining']),
+                'expiry_date'       => date($this->config['dateformat'], $expiry_date),
+                'days_until_expiry' => $days_until_expiry,
+                'unit_cost'         => to_currency($row['unit_cost_price']),
+                'total_value'       => to_currency($row['remaining'] * $row['unit_cost_price'])
+            ];
+        }
+
+        $data = [
+            'title'        => lang('Reports.expiry_report'),
+            'subtitle'     => sprintf(lang('Reports.expiry_report_subtitle'), $days_threshold),
+            'headers'      => [
+                ['item_name'         => lang('Reports.item_name')],
+                ['item_number'       => lang('Reports.item_number')],
+                ['category'          => lang('Reports.category')],
+                ['batch_quantity'    => lang('Reports.quantity')],
+                ['expiry_date'       => lang('Items.expiry_date')],
+                ['days_until_expiry' => lang('Reports.days_until_expiry')],
+                ['unit_cost'         => lang('Reports.cost_price'), 'sorter' => 'number_sorter'],
+                ['total_value'       => lang('Reports.total_value'), 'sorter' => 'number_sorter']
+            ],
+            'data'         => $tabular_data,
+            'summary_data' => []
         ];
 
         return view('reports/tabular', $data);

@@ -48,12 +48,23 @@ class Inventory_summary extends Report
             (item_quantities.quantity * items.qty_per_pack) as low_sell_quantity,
             items.reorder_level,
             stock_locations.location_name,
-            items.cost_price,
+            IFNULL(batches.fifo_value / NULLIF(batches.fifo_quantity, 0), items.cost_price) AS cost_price,
             items.unit_price,
-            (items.cost_price * item_quantities.quantity) AS sub_total_value'
+            IFNULL(batches.fifo_value, items.cost_price * item_quantities.quantity) AS sub_total_value'
         );
         $builder->join('item_quantities AS item_quantities', 'items.item_id = item_quantities.item_id');
         $builder->join('stock_locations AS stock_locations', 'item_quantities.location_id = stock_locations.location_id');
+        // FIFO inventory valuation: value stock from the batch table
+        // (remaining quantity at each batch's unit cost) rather than the item's
+        // (historical) cost price. Falls back to cost_price for items without
+        // batches.
+        $builder->join(
+            '(SELECT item_id, location_id, SUM(remaining) AS fifo_quantity, '
+            . 'SUM(remaining * unit_cost_price) AS fifo_value '
+            . 'FROM ' . $this->db->prefixTable('item_batches') . ' GROUP BY item_id, location_id) AS batches',
+            'batches.item_id = items.item_id AND batches.location_id = item_quantities.location_id',
+            'left'
+        );
         $builder->where('items.deleted', 0);
         $builder->where('items.stock_type', 0);
         $builder->where('stock_locations.deleted', 0);

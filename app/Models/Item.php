@@ -56,8 +56,110 @@ class Item extends Model
         'pack_name',
         'low_sell_item_id',
         'hsn_code',
-        'expiry_date'
+        'expiry_date',
+        'pricing_method',
+        'margin_percent',
+        'markup_percent',
+        'last_margin_percent'
     ];
+
+    /**
+     * Resolves the effective pricing configuration (method and percentages)
+     * for an item: the per-item override when set, otherwise the global
+     * defaults from the configuration.
+     *
+     * @param int|null $item_id The item to resolve pricing for (null = global only).
+     * @return array{method: string, margin: float, markup: float}
+     */
+    public function get_pricing_config(?int $item_id = null): array
+    {
+        $appconfig = model(Appconfig::class);
+
+        $method = $appconfig->get_value('default_pricing_method', 'margin');
+        $margin = (float) $appconfig->get_value('default_margin_percent', '20');
+        $markup = (float) $appconfig->get_value('default_markup_percent', '25');
+
+        if ($item_id !== null) {
+            $item_info = $this->get_info($item_id);
+
+            if (!empty($item_info->pricing_method)) {
+                $method = $item_info->pricing_method;
+
+                if ($method === 'margin' && $item_info->margin_percent !== null) {
+                    $margin = (float) $item_info->margin_percent;
+                } elseif ($method === 'markup' && $item_info->markup_percent !== null) {
+                    $markup = (float) $item_info->markup_percent;
+                }
+            }
+        }
+
+        return ['method' => $method, 'margin' => $margin, 'markup' => $markup];
+    }
+
+    /**
+     * Calculates the selling price from a cost price using an explicit
+     * pricing method and percentage (falling back to the global defaults for
+     * missing values). Auto-calculated prices are rounded to the nearest 0.50.
+     *
+     * Margin method:  selling = cost / (1 - margin / 100)
+     * Markup method:  selling = cost * (1 + markup / 100)
+     *
+     * @param float $cost_price The item's cost price.
+     * @param string|null $pricing_method 'margin', 'markup' or null (global default).
+     * @param float|null $margin_percent The item's margin override.
+     * @param float|null $markup_percent The item's markup override.
+     * @return float The calculated selling price, or 0 when it cannot be calculated.
+     */
+    public function calculate_selling_price_with(float $cost_price, ?string $pricing_method = null, ?float $margin_percent = null, ?float $markup_percent = null): float
+    {
+        if ($cost_price <= 0) {
+            return 0.0;
+        }
+
+        $appconfig = model(Appconfig::class);
+        $method = $pricing_method ?: $appconfig->get_value('default_pricing_method', 'margin');
+
+        if ($method === 'markup') {
+            $markup = $markup_percent ?? (float) $appconfig->get_value('default_markup_percent', '25');
+
+            if ($markup > 0) {
+                $selling_price = round($cost_price * (1 + $markup / 100), 2);
+            }
+        } else {
+            $margin = $margin_percent ?? (float) $appconfig->get_value('default_margin_percent', '20');
+
+            if ($margin > 0 && $margin < 100) {
+                $selling_price = round($cost_price / (1 - $margin / 100), 2);
+            }
+        }
+
+        if (!isset($selling_price)) {
+            return 0.0;
+        }
+
+        // Auto-calculated prices are rounded to the nearest 0.50
+        return ceil($selling_price * 2) / 2;
+    }
+
+    /**
+     * Calculates the selling price from a cost price using the item's pricing
+     * override (when set) or the global defaults.
+     */
+    public function calculate_selling_price(float $cost_price, ?int $item_id = null): float
+    {
+        if ($cost_price <= 0) {
+            return 0.0;
+        }
+
+        $config = $this->get_pricing_config($item_id);
+
+        return $this->calculate_selling_price_with(
+            $cost_price,
+            $config['method'],
+            $config['method'] === 'margin' ? $config['margin'] : null,
+            $config['method'] === 'markup' ? $config['markup'] : null
+        );
+    }
 
 
     /**
@@ -1181,5 +1283,62 @@ class Item extends Model
         $result = $builder->get()->getRow();
 
         return (float) ($result->quantity_purchased ?? 0);
+    }
+
+    /**
+     * Gets the count of items with quantity <= reorder_level and reorder_level > 0
+     *
+     * @return int Count of low stock items
+     */
+    public function get_low_stock_count(): int
+    {
+        $builder = $this->db->table('items');
+        $builder->select('COUNT(*) AS cnt');
+        $builder->where('deleted', 0);
+        $builder->where('stock_type', 0);
+        $builder->where('reorder_level >', 0);
+
+        // Use item_quantities to get total quantity per item
+        $builder->where('items.item_id IN (SELECT item_id FROM item_quantities WHERE quantity <= items.reorder_level GROUP BY item_id)', null, false);
+
+        $query = $builder->get();
+        $row = $query->getRow();
+
+        return (int) ($row->cnt ?? 0);
+    }
+
+    /**
+     * Gets items with quantity <= reorder_level and reorder_level > 0
+     *
+     * @return array List of low stock items with details
+     */
+    public function get_low_stock_items(): array
+    {
+        $builder = $this->db->table('items');
+        $builder->select('items.item_id, items.name, items.item_number, items.category, 
+            items.reorder_level, items.cost_price, items.unit_price');
+        $builder->where('items.deleted', 0);
+        $builder->where('items.stock_type', 0);
+        $builder->where('items.reorder_level >', 0);
+        $builder->where('items.item_id IN (SELECT item_id FROM item_quantities WHERE quantity <= items.reorder_level GROUP BY item_id)', null, false);
+        $builder->orderBy('items.name', 'ASC');
+
+        $items = $builder->get()->getResultArray();
+
+        // Get quantities for each item
+        foreach ($items as &$item) {
+            $qty_builder = $this->db->table('item_quantities');
+            $qty_builder->select('SUM(quantity) as total_quantity');
+            $qty_builder->where('item_id', $item['item_id']);
+            $qty_result = $qty_builder->get()->getRow();
+            $item['quantity'] = (float) ($qty_result->total_quantity ?? 0);
+        }
+
+        // Sort by quantity ascending (most critical first)
+        usort($items, function ($a, $b) {
+            return $a['quantity'] <=> $b['quantity'];
+        });
+
+        return $items;
     }
 }

@@ -123,7 +123,7 @@ class Giftcards extends Secure_Controller
         }
 
         $giftcard_data = [
-            'record_time'     => date('Y-m-d H:i:s'),
+            'record_time'     => now(),
             'giftcard_number' => $giftcard_number,
             'value'           => parse_decimals($this->request->getPost('giftcard_amount')),
             'person_id'       => empty($this->request->getPost('person_id')) ? null : $this->request->getPost('person_id', FILTER_SANITIZE_NUMBER_INT)

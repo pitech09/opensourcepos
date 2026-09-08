@@ -155,7 +155,7 @@ class Customers extends Persons
         $data['person_info'] = $info;
 
         if (empty($info->person_id) || empty($info->date) || empty($info->employee_id)) {
-            $data['person_info']->date = date('Y-m-d H:i:s');
+            $data['person_info']->date = now();
             $data['person_info']->employee_id = $this->employee->get_logged_in_employee_info()->person_id;
         }
 
@@ -449,7 +449,7 @@ class Customers extends Persons
                             'discount'      => $data[15],
                             'discount_type' => $data[16],
                             'taxable'       => $data[17] == '' ? 0 : 1,
-                            'date'          => date('Y-m-d H:i:s'),
+                            'date'          => now(),
                             'employee_id'   => $this->employee->get_logged_in_employee_info()->person_id
                         ];
                         $account_number = $data[14];

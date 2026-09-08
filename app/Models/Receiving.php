@@ -105,6 +105,7 @@ class Receiving extends Model
         $attribute = model(Attribute::class);
         $inventory = model('Inventory');
         $item = model(Item::class);
+        $item_batch = model(Item_batch::class);
         $item_quantity = model(Item_quantity::class);
         $supplier = model(Supplier::class);
 
@@ -113,7 +114,7 @@ class Receiving extends Model
         }
 
         $receivings_data = [
-            'receiving_time' => date('Y-m-d H:i:s'),
+            'receiving_time' => now(),
             'supplier_id'    => $supplier->exists($supplier_id) ? $supplier_id : null,
             'employee_id'    => $employee_id,
             'payment_type'   => $payment_type,
@@ -172,7 +173,7 @@ class Receiving extends Model
 
             $recv_remarks = 'RECV ' . $receiving_id;
             $inv_data = [
-                'trans_date'      => date('Y-m-d H:i:s'),
+                'trans_date'      => now(),
                 'trans_items'     => $item_data['item_id'],
                 'trans_user'      => $employee_id,
                 'trans_location'  => $item_data['item_location'],
@@ -182,11 +183,133 @@ class Receiving extends Model
 
             $inventory->insert($inv_data, false);
             $attribute->copy_attribute_links($item_data['item_id'], 'receiving_id', $receiving_id);
+
+            // FIFO batch tracking: every received line becomes a new batch with
+            // its own unit cost and unit selling price, so later sales consume
+            // batches oldest-first at each batch's selling price. The selling
+            // price is recalculated automatically from the new batch's cost and
+            // the configured profit margin (which may depend on the quantity
+            // received).
+            if($cur_item_info->stock_type == HAS_STOCK)
+            {
+                $selling_price = $this->_update_selling_price(
+                    $item_data['item_id'],
+                    $items_received,
+                    $item_data['price'],
+                    $cur_item_info->unit_price
+                );
+
+                $item_batch->create_batch(
+                    $item_data['item_id'],
+                    $item_data['item_location'],
+                    $items_received,
+                    $item_data['price'],    // unit cost paid for this batch
+                    $selling_price,         // automatically calculated selling price
+                    $receiving_id
+                );
+            }
         }
 
         $this->db->transComplete();
 
         return $this->db->transStatus() ? $receiving_id : -1;
+    }
+
+    /**
+     * Automatically recalculates an item's selling price from the cost of a
+     * newly received batch and the configured pricing. The pricing method and
+     * percentage resolve as follows:
+     *
+     *  1. The item's own override (pricing_method + margin_percent or
+     *     markup_percent) when set on the item.
+     *  2. Otherwise the global default_pricing_method from Configuration:
+     *     - markup: default_markup_percent
+     *     - margin: the matching rule from margin_quantity_rules (if any)
+     *       else default_margin_percent
+     *
+     * margin = (selling_price - cost) / selling_price, therefore
+     * selling_price = cost / (1 - margin / 100); with markup:
+     * selling_price = cost * (1 + markup / 100).
+     *
+     * When the percentage is not usable the item's current selling price is
+     * kept unchanged.
+     *
+     * @param int $item_id The item whose selling price is recalculated.
+     * @param float $quantity The quantity received on this line.
+     * @param float $unit_cost The unit cost of the newly received batch.
+     * @param float $current_price The item's current selling price (fallback).
+     * @return float The new selling price (rounded to 2 decimals).
+     */
+    private function _update_selling_price(int $item_id, float $quantity, float $unit_cost, float $current_price): float
+    {
+        $appconfig = model(Appconfig::class);
+        $item = model(Item::class);
+        $item_info = $item->get_info($item_id);
+
+        if (!empty($item_info->pricing_method)) {
+            // Per-item override
+            $method = $item_info->pricing_method;
+            $percent = $method === 'markup'
+                ? ($item_info->markup_percent !== null ? (float) $item_info->markup_percent : (float) $appconfig->get_value('default_markup_percent', '25'))
+                : ($item_info->margin_percent !== null ? (float) $item_info->margin_percent : (float) $appconfig->get_value('default_margin_percent', '20'));
+        } else {
+            $method = $appconfig->get_value('default_pricing_method', 'margin');
+
+            if ($method === 'markup') {
+                $percent = (float) $appconfig->get_value('default_markup_percent', '25');
+            } else {
+                // Quantity-based margin rules (if configured) take precedence
+                // over the flat default margin
+                $percent = (float) $appconfig->get_value('default_margin_percent', '20');
+                $rules = json_decode($appconfig->get_value('margin_quantity_rules', ''), true);
+
+                if (is_array($rules)) {
+                    foreach($rules as $rule)
+                    {
+                        $min = isset($rule['min_qty']) ? (float) $rule['min_qty'] : 0;
+                        $max = isset($rule['max_qty']) ? (float) $rule['max_qty'] : PHP_FLOAT_MAX;
+
+                        if($quantity >= $min && $quantity <= $max)
+                        {
+                            $percent = (float) $rule['margin_percent'];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Auto-calculated prices are rounded to the nearest 0.50
+        // (e.g. 8.375 -> 8.50, 8.7625 -> 9.00)
+        $selling_price = 0;
+
+        if ($method === 'markup') {
+            if ($percent > 0) {
+                $selling_price = round($unit_cost * (1 + $percent / 100), 2);
+            }
+        } elseif ($percent > 0 && $percent < 100) {
+            $selling_price = round($unit_cost / (1 - $percent / 100), 2);
+        }
+
+        if ($selling_price > 0) {
+            $selling_price = ceil($selling_price * 2) / 2;
+
+            // Record the effective margin of the rounded price as a percentage
+            // of the selling price
+            $effective_margin = ($selling_price - $unit_cost) / $selling_price * 100;
+
+            $this->db->table('items')
+                ->where('item_id', $item_id)
+                ->update([
+                    'unit_price'          => $selling_price,
+                    'last_margin_percent' => $effective_margin
+                ]);
+
+            return $selling_price;
+        }
+
+        // Invalid or zero percentage: keep the current selling price
+        return $current_price;
     }
 
 
@@ -230,7 +353,7 @@ class Receiving extends Model
             foreach ($items as $item) {
                 // Create query to update inventory tracking
                 $inv_data = [
-                    'trans_date'      => date('Y-m-d H:i:s'),
+                    'trans_date'      => now(),
                     'trans_items'     => $item['item_id'],
                     'trans_user'      => $employee_id,
                     'trans_comment'   => 'Deleting receiving ' . $receiving_id,

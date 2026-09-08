@@ -19,7 +19,7 @@ $request = Services::request();
     <base href="<?= base_url() ?>">
     <title><?= esc($config['company']) . ' | ' . lang('Common.powered_by') . ' BI POS ' . esc(config('App')->application_version) ?></title>
     <meta name="robots" content="noindex, nofollow">
-    <link rel="shortcut icon" type="image/x-icon" href="images/favicon.ico">
+    <link rel="shortcut icon" type="image/png" href="images/chief.png">
     <?php $theme = (empty($config['theme']) ? 'flatly' : esc($config['theme'])); ?>
     <link rel="stylesheet" href="resources/bootswatch/<?= "$theme" ?>/bootstrap.min.css">
 
@@ -116,6 +116,17 @@ $request = Services::request();
                 </div>
 
                 <div class="navbar-right" style="margin: 0;">
+                    <!-- Notification Badges -->
+                    <span class="notification-badges" style="display: inline-block; margin-right: 10px;">
+                        <a href="<?= base_url('reports/inventory_low') ?>" class="notification-badge" id="low-stock-badge" title="<?= lang('Notifications.low_stock_alerts') ?>" style="position: relative; display: inline-block; padding: 5px 8px; color: #fff; text-decoration: none;">
+                            <i class="glyphicon glyphicon-arrow-down" style="color: #d9534f;"></i>
+                            <span class="badge" id="low-stock-count" style="background-color: #d9534f; position: absolute; top: -5px; right: -5px; font-size: 10px; padding: 2px 5px; display: none;">0</span>
+                        </a>
+                        <a href="<?= base_url('reports/expiry') ?>" class="notification-badge" id="expiry-badge" title="<?= lang('Notifications.expiry_alerts') ?>" style="position: relative; display: inline-block; padding: 5px 8px; color: #fff; text-decoration: none;">
+                            <i class="glyphicon glyphicon-time" style="color: #f0ad4e;"></i>
+                            <span class="badge" id="expiry-count" style="background-color: #f0ad4e; position: absolute; top: -5px; right: -5px; font-size: 10px; padding: 2px 5px; display: none;">0</span>
+                        </a>
+                    </span>
                     <?= anchor("home/changePassword/$user_info->person_id", "$user_info->first_name $user_info->last_name", ['class' => 'modal-dlg', 'data-btn-submit' => lang('Common.submit'), 'title' => lang('Employees.change_password')]) ?>
                     <span>&nbsp;|&nbsp;</span>
                     <?= anchor('home/logout', lang('Login.logout')) ?>

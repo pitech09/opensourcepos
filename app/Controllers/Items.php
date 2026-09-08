@@ -7,6 +7,7 @@ use App\Libraries\Item_lib;
 use App\Models\Attribute;
 use App\Models\Inventory;
 use App\Models\Item;
+use App\Models\Item_batch;
 use App\Models\Item_kit;
 use App\Models\Item_quantity;
 use App\Models\Item_taxes;
@@ -31,6 +32,7 @@ class Items extends Secure_Controller
     private Attribute $attribute;
     private Inventory $inventory;
     private Item $item;
+    private Item_batch $item_batch;
     private Item_kit $item_kit;
     private Item_quantity $item_quantity;
     private Item_taxes $item_taxes;
@@ -54,6 +56,7 @@ class Items extends Secure_Controller
         $this->attribute = model(Attribute::class);
         $this->inventory = model(Inventory::class);
         $this->item = model(Item::class);
+        $this->item_batch = model(Item_batch::class);
         $this->item_kit = model(Item_kit::class);
         $this->item_quantity = model(Item_quantity::class);
         $this->item_taxes = model(Item_taxes::class);
@@ -94,6 +97,23 @@ class Items extends Secure_Controller
         $data = array_merge($data, restoreTableFilters($this->request));
 
         return view('items/manage', $data);
+    }
+
+    /**
+     * Shows the FIFO batch report: every batch with remaining quantity, unit
+     * cost and unit selling price, oldest batch first. Consumed/depleted
+     * batches are shown as such.
+     *
+     * @return string
+     */
+    public function getBatches(): string
+    {
+        $stock_locations = $this->stock_location->get_allowed_locations();
+
+        $data['batches'] = $this->item_batch->get_all_batches($stock_locations);
+        $data['stock_locations'] = $stock_locations;
+
+        return view('items/batches', $data);
     }
 
     /**
@@ -660,6 +680,33 @@ class Items extends Secure_Controller
             'expiry_date'           => empty($expiryDate) ? null : $expiryDate
         ];
 
+        // Per-item pricing override: an empty method means "use global default"
+        $pricing_method = $this->request->getPost('pricing_method');
+        $item_data['pricing_method'] = ($pricing_method === 'margin' || $pricing_method === 'markup') ? $pricing_method : null;
+
+        if ($item_data['pricing_method'] === 'margin') {
+            $item_data['margin_percent'] = $this->request->getPost('margin_percent') === null ? null : parse_decimals($this->request->getPost('margin_percent'));
+            $item_data['markup_percent'] = null;
+        } elseif ($item_data['pricing_method'] === 'markup') {
+            $item_data['margin_percent'] = null;
+            $item_data['markup_percent'] = $this->request->getPost('markup_percent') === null ? null : parse_decimals($this->request->getPost('markup_percent'));
+        } else {
+            $item_data['margin_percent'] = null;
+            $item_data['markup_percent'] = null;
+        }
+
+        // Server-side fallback: when no selling price was entered, calculate it
+        // from the cost price using the per-item override or global defaults.
+        // A manually entered (non-zero) selling price always wins.
+        if ($unit_price == 0 && $cost_price > 0) {
+            $item_data['unit_price'] = $this->item->calculate_selling_price_with(
+                $cost_price,
+                $item_data['pricing_method'],
+                $item_data['margin_percent'],
+                $item_data['markup_percent']
+            );
+        }
+
         if ($item_data['item_type'] == ITEM_TEMP) {
             $item_data['stock_type'] = HAS_NO_STOCK;
             $item_data['receiving_quantity'] = 0;
@@ -731,7 +778,7 @@ class Items extends Secure_Controller
                     $success = $success &&  $this->item_quantity->save_value($location_detail, $item_id, $location['location_id']);
 
                     $inv_data = [
-                        'trans_date'      => date('Y-m-d H:i:s'),
+                        'trans_date'      => now(),
                         'trans_items'     => $item_id,
                         'trans_user'      => $employee_id,
                         'trans_location'  => $location['location_id'],
@@ -740,6 +787,20 @@ class Items extends Secure_Controller
                     ];
 
                     $success = $success && $this->inventory->insert($inv_data, false);
+
+                    // FIFO batch tracking: keep batches in sync with manual quantity
+                    // edits. Positive deltas create a new batch costed at the item's
+                    // last known FIFO unit cost; negative deltas consume the oldest
+                    // batches first (FIFO).
+                    if ($this->item->get_info($item_id)->stock_type == HAS_STOCK) {
+                        $quantity_delta = $updated_quantity - $item_quantity->quantity;
+
+                        if ($quantity_delta > 0) {
+                            $this->item_batch->add_stock($item_id, $location['location_id'], $quantity_delta);
+                        } elseif ($quantity_delta < 0) {
+                            $this->item_batch->consume_fifo($item_id, $location['location_id'], -$quantity_delta);
+                        }
+                    }
                 }
             }
             $success = $success && $this->saveItemAttributes($item_id);
@@ -861,7 +922,7 @@ class Items extends Secure_Controller
         $location_id = $this->request->getPost('stock_location');
         $new_quantity = $this->request->getPost('newquantity');
         $inv_data = [
-            'trans_date'      => date('Y-m-d H:i:s'),
+            'trans_date'      => now(),
             'trans_items'     => $item_id,
             'trans_user'      => $employee_id,
             'trans_location'  => $location_id,
@@ -873,13 +934,25 @@ class Items extends Secure_Controller
 
         // Update stock quantity
         $item_quantity = $this->item_quantity->get_item_quantity($item_id, $location_id);
+        $quantity_delta = parse_quantity($new_quantity);
         $item_quantity_data = [
             'item_id'     => $item_id,
             'location_id' => $location_id,
-            'quantity'    => $item_quantity->quantity + parse_quantity($this->request->getPost('newquantity'))
+            'quantity'    => $item_quantity->quantity + $quantity_delta
         ];
 
         if ($this->item_quantity->save_value($item_quantity_data, $item_id, $location_id)) {
+            // FIFO batch tracking: inventory adjustments adjust the batches too.
+            // Positive adjustments create a new batch; negative adjustments
+            // consume the oldest batches first (FIFO).
+            if ($this->item->get_info($item_id)->stock_type == HAS_STOCK) {
+                if ($quantity_delta > 0) {
+                    $this->item_batch->add_stock($item_id, $location_id, $quantity_delta);
+                } elseif ($quantity_delta < 0) {
+                    $this->item_batch->consume_fifo($item_id, $location_id, -$quantity_delta);
+                }
+            }
+
             $message = lang('Items.successful_updating') . " $cur_item_info->name";
 
             return $this->response->setJSON(['success' => true, 'message' => $message, 'id' => $item_id]);
@@ -1281,8 +1354,20 @@ class Items extends Secure_Controller
             ];
 
             if (!empty($row["location_$location_name"]) || $row["location_$location_name"] === '0') {
+                $old_quantity = $this->item_quantity->get_item_quantity($item_data['item_id'], $location_id)->quantity;
                 $item_quantity_data['quantity'] = $row["location_$location_name"];
                 $success &= $this->item_quantity->save_value($item_quantity_data, $item_data['item_id'], $location_id);
+
+                // FIFO batch tracking: keep batches in sync with imported
+                // quantities. Positive deltas create a new batch; negative deltas
+                // consume the oldest batches first (FIFO).
+                $quantity_delta = $row["location_$location_name"] - $old_quantity;
+
+                if ($quantity_delta > 0) {
+                    $this->item_batch->add_stock($item_data['item_id'], $location_id, $quantity_delta);
+                } elseif ($quantity_delta < 0) {
+                    $this->item_batch->consume_fifo($item_data['item_id'], $location_id, -$quantity_delta);
+                }
 
                 $csv_data['trans_inventory'] = $row["location_$location_name"];
                 $success &= (bool)$this->inventory->insert($csv_data, false);

@@ -147,4 +147,9 @@ return [
     "work_orders"                             => "Work Orders",
     "zero_and_less"                           => "Zero and less",
     "toggle_cost_and_profit"                  => "Toggle Cost & Profit",
+    "expiry_report"                           => "Expiry Report",
+    "expiry_report_subtitle"                  => "Items expiring within %d days",
+    "days_until_expiry"                       => "Days Until Expiry",
+    "total_value"                             => "Total Value",
+    "alerts_reports"                          => "Alerts & Notifications",
 ];

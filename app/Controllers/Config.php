@@ -381,6 +381,9 @@ class Config extends Secure_Controller
             'default_sales_discount'            => parse_decimals($this->request->getPost('default_sales_discount')),
             'default_receivings_discount_type'  => $this->request->getPost('default_receivings_discount_type') != null,
             'default_receivings_discount'       => parse_decimals($this->request->getPost('default_receivings_discount')),
+            'default_pricing_method'            => $this->request->getPost('default_pricing_method') === 'markup' ? 'markup' : 'margin',
+            'default_margin_percent'            => parse_decimals($this->request->getPost('default_margin_percent')),
+            'default_markup_percent'            => parse_decimals($this->request->getPost('default_markup_percent')),
             'enforce_privacy'                   => $this->request->getPost('enforce_privacy') != null,
             'receiving_calculate_average_price' => $this->request->getPost('receiving_calculate_average_price') != null,
             'lines_per_page'                    => $this->request->getPost('lines_per_page', FILTER_SANITIZE_NUMBER_INT),
@@ -400,7 +403,8 @@ class Config extends Secure_Controller
             'derive_sale_quantity'              => $this->request->getPost('derive_sale_quantity') != null,
             'multi_pack_enabled'                => $this->request->getPost('multi_pack_enabled') != null,
             'include_hsn'                       => $this->request->getPost('include_hsn') != null,
-            'category_dropdown'                 => $this->request->getPost('category_dropdown') != null
+            'category_dropdown'                 => $this->request->getPost('category_dropdown') != null,
+            'expiry_warning_days'               => $this->request->getPost('expiry_warning_days', FILTER_SANITIZE_NUMBER_INT)
         ];
 
         $this->module->set_show_office_group($this->request->getPost('show_office_group') != null);
@@ -478,13 +482,24 @@ class Config extends Secure_Controller
      */
     public function postSaveLocale(): ResponseInterface
     {
+        $min = (int) $this->request->getPost('payment_reference_code_min');
+        $max = (int) $this->request->getPost('payment_reference_code_max');
+
         $rules = [
-            'payment_reference_code_min' => 'required|integer|greater_than[0]',
-            'payment_reference_code_max' => 'required|integer|greater_than_equal_to[payment_reference_code_min]',
+            'payment_reference_code_min' => 'required|greater_than[0]',
+            'payment_reference_code_max' => 'required',
         ];
+
         if (!$this->validate($rules)) {
             $errors = $this->validator->getErrors();
             return $this->response->setJSON(['success' => false, 'message' => reset($errors)]);
+        }
+
+        if ($max < $min) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => lang('Config.payment_reference_code_max_too_small')
+            ]);
         }
 
         $exploded = explode(":", $this->request->getPost('language'));

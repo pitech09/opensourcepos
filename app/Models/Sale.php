@@ -133,11 +133,26 @@ class Sale extends Model
 
         $this->create_temp_table_sales_payments_data($where);
 
+        // Create a temporary table to contain the FIFO cost of goods sold per
+        // sale line (see Item_batch / sales_items_batches), falling back to the
+        // item's cost price for sale lines without batch allocations.
+        $sql = 'CREATE TEMPORARY TABLE IF NOT EXISTS ' . $this->db->prefixTable('sales_items_cost_temp') .
+            ' (INDEX(sale_id), INDEX(line)) ENGINE=MEMORY
+            (
+                SELECT sales_items_batches.sale_id AS sale_id,
+                    sales_items_batches.line AS line,
+                    SUM(sales_items_batches.cost) AS fifo_cost
+                FROM ' . $this->db->prefixTable('sales_items_batches') . ' AS sales_items_batches
+                GROUP BY sale_id, line
+            )';
+
+        $this->db->query($sql);
+
         $sale_price = 'CASE WHEN `sales_items`.`discount_type` = ' . PERCENT
             . " THEN `sales_items`.`quantity_purchased` * `sales_items`.`item_unit_price` - ROUND(`sales_items`.`quantity_purchased` * `sales_items`.`item_unit_price` * `sales_items`.`discount` / 100, $decimals) "
             . 'ELSE `sales_items`.`quantity_purchased` * (`sales_items`.`item_unit_price` - `sales_items`.`discount`) END';
 
-        $sale_cost = 'SUM(`sales_items`.`item_cost_price` * `sales_items`.`quantity_purchased`)';
+        $sale_cost = 'SUM(IFNULL(sales_items_cost.fifo_cost, `sales_items`.`item_cost_price` * `sales_items`.`quantity_purchased`))';
 
         $tax = 'IFNULL(SUM(`sales_items_taxes`.`tax`), 0)';
         $sales_tax = 'IFNULL(SUM(`sales_items_taxes`.`sales_tax`), 0)';
@@ -183,6 +198,11 @@ class Sale extends Model
         $builder->join(
             'sales_items_taxes_temp AS sales_items_taxes',
             'sales_items.sale_id = sales_items_taxes.sale_id AND sales_items.item_id = sales_items_taxes.item_id AND sales_items.line = sales_items_taxes.line',
+            'LEFT OUTER'
+        );
+        $builder->join(
+            'sales_items_cost_temp AS sales_items_cost',
+            'sales_items.sale_id = sales_items_cost.sale_id AND sales_items.line = sales_items_cost.line',
             'LEFT OUTER'
         );
 
@@ -540,6 +560,7 @@ class Sale extends Model
         $item = model(Item::class);
 
         $item_quantity = model(Item_quantity::class);
+        $item_batch = model(Item_batch::class);
 
         if ($saleId != NEW_ENTRY) {
             $this->clear_suspended_sale_detail($saleId);
@@ -550,7 +571,7 @@ class Sale extends Model
         }
 
         $sales_data = [
-            'sale_time'         => date('Y-m-d H:i:s'),
+            'sale_time'         => now(),
             'customer_id'       => $customer->exists($customerId) ? $customerId : null,
             'employee_id'       => $employeeId,
             'comment'           => $comment,
@@ -633,6 +654,8 @@ class Sale extends Model
             $builder = $this->db->table('sales_items');
             $builder->insert($sales_items_data);
 
+            $allocations = [];
+
             if ($cur_item_info->stock_type == HAS_STOCK && $saleStatus == COMPLETED) {    // TODO: === ?
                 // Update stock quantity if item type is a standard stock item and the sale is a standard sale
                 $item_quantity_data = $item_quantity->get_item_quantity($item_data['item_id'], $item_data['item_location']);
@@ -647,15 +670,54 @@ class Sale extends Model
                     $item_data['item_location']
                 );
 
+                // FIFO batch tracking: consume units from the oldest batch first
+                // (only for positive quantities; returns/restores are not batched)
+                // and record which batch each sold unit came from, with the
+                // batch's own cost and selling price.
+                if($item_data['quantity'] > 0) {
+                    $allocations = $item_batch->allocate_fifo(
+                        $item_data['item_id'],
+                        $item_data['item_location'],
+                        $item_data['quantity']
+                    );
+
+                    $item_batch->record_sale_allocation($saleId, $item_data['line'], $allocations);
+                }
+
+                // Store the actual FIFO cost of goods sold for this sale line
+                // in sales_items.cost_price (the per-batch detail is kept in
+                // ospos_sales_items_batches). Returns (negative quantities)
+                // have no allocation, so their cost stays at the default of 0.
+                if(!empty($allocations))
+                {
+                    $line_cost = array_sum(array_column($allocations, 'cost'));
+
+                    $this->db->table('sales_items')
+                        ->where('sale_id', $saleId)
+                        ->where('line', $item_data['line'])
+                        ->update(['cost_price' => $line_cost]);
+                }
+
                 // If an items was deleted but later returned it's restored with this rule
                 if ($item_data['quantity'] < 0) {
                     $item->undelete($item_data['item_id']);
+
+                    // FIFO batch tracking: returned units are added back as a new
+                    // batch so the batch table stays in sync with stock. The new
+                    // batch has a later batch_id, preserving FIFO order, and is
+                    // costed at the item's last known FIFO unit cost (falling back
+                    // to the item's cost price).
+                    $item_batch->add_stock(
+                        $item_data['item_id'],
+                        $item_data['item_location'],
+                        -$item_data['quantity']
+                    );
                 }
 
                 // Inventory Count Details
                 $sale_remarks = 'POS ' . $saleId;    // TODO: Use string interpolation here.
                 $inv_data = [
-                    'trans_date'      => date('Y-m-d H:i:s'),
+                    'trans_date'      => now(),
                     'trans_items'     => $item_data['item_id'],
                     'trans_user'      => $employeeId,
                     'trans_location'  => $item_data['item_location'],
@@ -815,7 +877,7 @@ class Sale extends Model
                 if ($cur_item_info->stock_type == HAS_STOCK) {
                     // Create query to update inventory tracking
                     $inv_data = [
-                        'trans_date'      => date('Y-m-d H:i:s'),
+                        'trans_date'      => now(),
                         'trans_items'     => $item_data['item_id'],
                         'trans_user'      => $employee_id,
                         'trans_comment'   => 'Deleting sale ' . $sale_id,
@@ -1050,7 +1112,23 @@ class Sale extends Model
             . " THEN sales_items.quantity_purchased * sales_items.item_unit_price - ROUND(sales_items.quantity_purchased * sales_items.item_unit_price * sales_items.discount / 100, $decimals) "
             . 'ELSE sales_items.quantity_purchased * (sales_items.item_unit_price - sales_items.discount) END';
 
-        $sale_cost = 'SUM(sales_items.item_cost_price * sales_items.quantity_purchased)';
+        // Create a temporary table to contain the FIFO cost of goods sold per
+        // sale line, computed from the per-batch allocations recorded at sale
+        // time (sales_items_batches). Falls back to the item's cost price for
+        // sale lines without batch allocations (e.g. pre-FIFO sales).
+        $sql = 'CREATE TEMPORARY TABLE IF NOT EXISTS ' . $this->db->prefixTable('sales_items_cost_temp') .
+            ' (INDEX(sale_id), INDEX(line)) ENGINE=MEMORY
+            (
+                SELECT sales_items_batches.sale_id AS sale_id,
+                    sales_items_batches.line AS line,
+                    SUM(sales_items_batches.cost) AS fifo_cost
+                FROM ' . $this->db->prefixTable('sales_items_batches') . ' AS sales_items_batches
+                GROUP BY sale_id, line
+            )';
+
+        $this->db->query($sql);
+
+        $sale_cost = 'SUM(IFNULL(sales_items_cost.fifo_cost, sales_items.item_cost_price * sales_items.quantity_purchased))';
 
         $tax = 'IFNULL(SUM(sales_items_taxes.tax), 0)';
         $sales_tax = 'IFNULL(SUM(sales_items_taxes.sales_tax), 0)';
@@ -1166,6 +1244,8 @@ class Sale extends Model
                     ON sales.employee_id = employee.person_id
                 LEFT OUTER JOIN ' . $this->db->prefixTable('sales_items_taxes_temp') . ' AS sales_items_taxes
                     ON sales_items.sale_id = sales_items_taxes.sale_id AND sales_items.item_id = sales_items_taxes.item_id AND sales_items.line = sales_items_taxes.line
+                LEFT OUTER JOIN ' . $this->db->prefixTable('sales_items_cost_temp') . ' AS sales_items_cost
+                    ON sales_items.sale_id = sales_items_cost.sale_id AND sales_items.line = sales_items_cost.line
                 WHERE ' . $where . '
                 GROUP BY sale_id, item_id, line
             )';

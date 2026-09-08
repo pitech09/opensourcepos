@@ -28,7 +28,23 @@ abstract class Summary_report extends Report
             . " THEN sales_items.quantity_purchased * sales_items.item_unit_price - ROUND(sales_items.quantity_purchased * sales_items.item_unit_price * sales_items.discount / 100, $decimals) "
             . 'ELSE sales_items.quantity_purchased * (sales_items.item_unit_price - sales_items.discount) END';
 
-        $sale_cost = 'SUM(sales_items.item_cost_price * sales_items.quantity_purchased)';
+        // Create a temporary table to contain the FIFO cost of goods sold per
+        // sale line, computed from the per-batch allocations recorded at sale
+        // time (sales_items_batches). Falls back to the item's cost price for
+        // sale lines without batch allocations (e.g. pre-FIFO sales).
+        $this->db->query(
+            'CREATE TEMPORARY TABLE IF NOT EXISTS ' . $this->db->prefixTable('sales_items_cost_temp') .
+                ' (INDEX(sale_id), INDEX(line)) ENGINE=MEMORY
+            (
+                SELECT sales_items_batches.sale_id AS sale_id,
+                    sales_items_batches.line AS line,
+                    SUM(sales_items_batches.cost) AS fifo_cost
+                FROM ' . $this->db->prefixTable('sales_items_batches') . ' AS sales_items_batches
+                GROUP BY sale_id, line
+            )'
+        );
+
+        $sale_cost = 'SUM(IFNULL(sales_items_cost.fifo_cost, sales_items.item_cost_price * sales_items.quantity_purchased))';
         $sales_tax = "IFNULL(SUM(sales_items_taxes.tax), 0)";
 
         $cash_adjustment = 'IFNULL(SUM(payments.sale_cash_adjustment), 0)';
@@ -99,6 +115,11 @@ abstract class Summary_report extends Report
             'left outer'
         );
         $builder->join('sales_payments_temp AS payments', 'sales.sale_id = payments.sale_id', 'LEFT OUTER');
+        $builder->join(
+            'sales_items_cost_temp AS sales_items_cost',
+            'sales_items.sale_id = sales_items_cost.sale_id AND sales_items.line = sales_items_cost.line',
+            'left outer'
+        );
     }
 
     /**

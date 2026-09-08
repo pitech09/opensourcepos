@@ -96,7 +96,7 @@ class Cashups extends Secure_Controller
 
         // Open cashup
         if ($cash_ups_info->cashup_id == NEW_ENTRY) {
-            $cash_ups_info->open_date = date('Y-m-d H:i:s');
+            $cash_ups_info->open_date = now();
             $cash_ups_info->close_date = $cash_ups_info->open_date;
             $cash_ups_info->open_employee_id = $this->employee->get_logged_in_employee_info()->person_id;
             $cash_ups_info->close_employee_id = $this->employee->get_logged_in_employee_info()->person_id;
@@ -109,7 +109,7 @@ class Cashups extends Secure_Controller
             && floatval($cash_ups_info->closed_amount_check) == 0
         ) {
             // Set the close date and time to the actual as this is a close session
-            $cash_ups_info->close_date = date('Y-m-d H:i:s');
+            $cash_ups_info->close_date = now();
 
             // The closed amount starts with the open amount -/+ any trasferred amount
             $cash_ups_info->closed_amount_cash = $cash_ups_info->open_amount_cash + $cash_ups_info->transfer_amount_cash;

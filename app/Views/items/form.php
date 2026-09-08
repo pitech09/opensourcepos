@@ -216,6 +216,73 @@
             </div>
         </div>
 
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Items.pricing_method'), 'pricing_method', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-4">
+                <?= form_dropdown(
+                    'pricing_method',
+                    [
+                        ''       => lang('Items.use_global_pricing'),
+                        'margin' => lang('Config.pricing_method_margin'),
+                        'markup' => lang('Config.pricing_method_markup')
+                    ],
+                    $item_info->pricing_method ?? '',
+                    ['id' => 'pricing_method', 'class' => 'form-control input-sm']
+                ) ?>
+                <span class="help-block" style="margin-bottom: 0;"><?= lang('Items.pricing_help') ?></span>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm" id="margin_percent_group">
+            <?= form_label(lang('Items.margin_percent'), 'margin_percent', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-4">
+                <div class="input-group input-group-sm">
+                    <?= form_input([
+                        'name'    => 'margin_percent',
+                        'id'      => 'margin_percent',
+                        'class'   => 'form-control input-sm',
+                        'type'    => 'number',
+                        'min'     => 0,
+                        'max'     => 99.99,
+                        'step'    => '0.01',
+                        'onClick' => 'this.select();',
+                        'value'   => $item_info->margin_percent ?? ''
+                    ]) ?>
+                    <span class="input-group-addon input-sm"><b>%</b></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm" id="markup_percent_group">
+            <?= form_label(lang('Items.markup_percent'), 'markup_percent', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-4">
+                <div class="input-group input-group-sm">
+                    <?= form_input([
+                        'name'    => 'markup_percent',
+                        'id'      => 'markup_percent',
+                        'class'   => 'form-control input-sm',
+                        'type'    => 'number',
+                        'min'     => 0,
+                        'max'     => 999.99,
+                        'step'    => '0.01',
+                        'onClick' => 'this.select();',
+                        'value'   => $item_info->markup_percent ?? ''
+                    ]) ?>
+                    <span class="input-group-addon input-sm"><b>%</b></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Items.gross_profit'), 'gross_profit_display', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-4">
+                <p class="form-control-static">
+                    <span id="gross_profit_display">&nbsp;</span>
+                    <span id="effective_margin_display" class="text-muted"></span>
+                </p>
+            </div>
+        </div>
+
         <?php if (!$use_destination_based_tax) { ?>
             <div class="form-group form-group-sm">
                 <?= form_label(lang('Items.tax_1'), 'tax_percent_1', ['class' => 'control-label col-xs-3']) ?>
@@ -469,6 +536,109 @@
 <script type="text/javascript">
     // Validation and submit handling
     $(document).ready(function() {
+        // ----- Live selling price calculation from cost + margin/markup -----
+        const globalPricingMethod = '<?= esc($config['default_pricing_method'] ?? 'margin') ?>';
+        const globalMarginPercent = parseFloat('<?= esc($config['default_margin_percent'] ?? '20') ?>') || 0;
+        const globalMarkupPercent = parseFloat('<?= esc($config['default_markup_percent'] ?? '25') ?>') || 0;
+
+        // Auto-calculated prices are rounded to the nearest 0.50 (e.g. 8.375
+        // -> 8.50, 8.7625 -> 9.00). Manually typed prices are never rounded
+        // or overwritten (see the unit_price handler below).
+        const roundToNearestHalf = function(value) {
+            return Math.ceil(value * 2) / 2;
+        };
+
+        // Set when the user manually edits the selling price; auto-calculation
+        // then only refreshes the profit readout until the pricing method or
+        // percentage is changed again.
+        let priceManuallyEdited = false;
+
+        // Cent-precision rounding of the raw formula result
+        const round = function(value) {
+            return Math.round(value * 100) / 100;
+        };
+
+        // Shows/hides the margin and markup percent inputs depending on the
+        // effective method (the per-item override or the global default)
+        const updatePricingGroupsVisibility = function(effectiveMethod) {
+            $('#margin_percent_group').toggle(effectiveMethod !== 'markup');
+            $('#markup_percent_group').toggle(effectiveMethod === 'markup');
+        };
+
+        // @param bool updatePrice when false (initial form load) the existing
+        // selling price is left untouched and only the visibility and the
+        // gross profit readout are refreshed
+        const recalcPrice = function(updatePrice = true) {
+            const cost = parseFloat($('#cost_price').val().replace(/[^0-9.\-]/g, '')) || 0;
+            const method = $('#pricing_method').val() || '';
+            const effectiveMethod = method || globalPricingMethod;
+
+            updatePricingGroupsVisibility(effectiveMethod);
+
+            let margin = parseFloat($('#margin_percent').val()) || 0;
+            let markup = parseFloat($('#markup_percent').val()) || 0;
+
+            if (method === '') {
+                // "Use Global Default": keep the inputs empty and use the
+                // configured defaults for the calculation
+                margin = globalMarginPercent;
+                markup = globalMarkupPercent;
+            }
+
+            // Raw selling price (cent precision) from the pricing formula
+            let rawSelling = 0;
+
+            if (cost > 0) {
+                if (effectiveMethod === 'markup') {
+                    if (markup > 0) {
+                        rawSelling = round(cost * (1 + markup / 100));
+                    }
+                } else {
+                    if (margin > 0 && margin < 100) {
+                        rawSelling = round(cost / (1 - margin / 100));
+                    }
+                }
+            }
+
+            // Auto-calculated prices are rounded to the nearest 0.50
+            const roundedSelling = rawSelling > 0 ? roundToNearestHalf(rawSelling) : 0;
+
+            if (roundedSelling > 0) {
+                // Respect manual entry: when the user typed a selling price,
+                // keep it and only refresh the profit readout. Also on initial
+                // form load the item's stored selling price is left untouched.
+                const autoApplies = updatePrice && !priceManuallyEdited;
+                const displayPrice = autoApplies
+                    ? roundedSelling
+                    : (parseFloat($('#unit_price').val().replace(/[^0-9.\-]/g, '')) || roundedSelling);
+                const profit = displayPrice - cost;
+                const effectiveMargin = displayPrice > 0 ? (profit / displayPrice) * 100 : 0;
+
+                if (autoApplies) {
+                    $('#unit_price').val(roundedSelling.toFixed(2));
+                }
+
+                $('#gross_profit_display').text(displayPrice.toFixed(2) + ' - ' + cost.toFixed(2) + ' = ' + profit.toFixed(2));
+                $('#effective_margin_display').text('(' + effectiveMargin.toFixed(2) + '% margin)');
+            } else {
+                $('#gross_profit_display').text(' ');
+                $('#effective_margin_display').text('');
+            }
+        };
+
+        // Manual selling price edits disable price auto-fill (only the profit
+        // readout updates) until the pricing method or percentage is changed
+        $('#unit_price').on('input', function() {
+            priceManuallyEdited = true;
+        });
+
+        $('#pricing_method, #margin_percent, #markup_percent').on('input change', function() {
+            priceManuallyEdited = false;
+        });
+
+        $('#cost_price, #pricing_method, #margin_percent, #markup_percent').on('input change', recalcPrice);
+        recalcPrice(false);
+
         $('#new').click(function() {
             let stay_open = true;
             $('#item_form').submit();
