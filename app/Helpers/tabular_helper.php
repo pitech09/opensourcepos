@@ -398,9 +398,7 @@ function item_headers(): array
         ['company_name'  => lang('Suppliers.company_name')],
         ['cost_price'    => lang('Items.cost_price')],
         ['unit_price'    => lang('Items.unit_price')],
-        ['quantity'      => lang('Items.quantity')],
-        ['final_profit'  => lang('Items.final_profit')],
-        ['current_profit'=> lang('Items.current_profit')]
+        ['quantity'      => lang('Items.quantity')]
     ];
 }
 
@@ -485,9 +483,8 @@ function get_item_data_row(object $item): array
 
     $definition_names = $attribute->get_definitions_by_flags($attribute::SHOW_IN_ITEMS, true);
 
-    $final_profit = $item->unit_price - $item->cost_price;
-    $total_sold = $item_model->get_total_sold_quantity($item->item_id);
-    $current_profit = $final_profit * $total_sold;
+    // Determine if item quantity is at or below reorder level for row highlighting
+    $low_stock = (is_numeric($item->quantity) && is_numeric($item->reorder_level) && $item->quantity <= $item->reorder_level) ? 1 : 0;
 
     $columns = [
         'items.item_id' => $item->item_id,
@@ -498,10 +495,9 @@ function get_item_data_row(object $item): array
         'cost_price'    => to_currency($item->cost_price),
         'unit_price'    => to_currency($item->unit_price),
         'quantity'      => to_quantity_decimals($item->quantity),
-        'final_profit'  => to_currency($final_profit),
-        'current_profit'=> to_currency($current_profit),
         'tax_percents'  => !$tax_percents ? '-' : $tax_percents,
-        'item_pic'      => $image
+        'item_pic'      => $image,
+        'low_stock'     => $low_stock
     ];
 
     $icons = [

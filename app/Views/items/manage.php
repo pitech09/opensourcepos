@@ -59,6 +59,14 @@ use App\Models\Employee;
                     "filters": $("#filters").val()
                 });
             },
+            rowStyle: function(row, index) {
+                if (row.low_stock == '1') {
+                    return {
+                        css: { 'color': '#a94442' }
+                    };
+                }
+                return {};
+            },
             onLoadSuccess: function(response) {
                 $('a.rollover').imgPreview({
                     imgCSS: {
