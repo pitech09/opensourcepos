@@ -7,6 +7,7 @@ CREATE TABLE `ospos_item_batches` (
 	`remaining` DECIMAL(15,4) NOT NULL,
 	`unit_cost_price` DECIMAL(15,4) NOT NULL,
 	`unit_selling_price` DECIMAL(15,4) NOT NULL,
+	`expiry_date` DATE DEFAULT NULL,
 	`created_at` DATETIME NOT NULL,
 	PRIMARY KEY (`batch_id`),
 	KEY `idx_item_batches_item` (`item_id`),

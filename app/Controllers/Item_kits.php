@@ -117,6 +117,74 @@ class Item_kits extends Secure_Controller
     }
 
     /**
+     * Keeps the item that represents the kit as a single sellable line
+     * (ospos_item_kits.item_id) in sync with the kit.
+     *
+     * A kit is sold as one line at the price defined on its linked item, which
+     * is completely independent of the prices of the components: the
+     * components are only used to deduct stock. Because of that the kit must
+     * always have a linked item. When a kit has no linked item yet (new kits,
+     * or kits created before bundle pricing existed) one is created here and
+     * priced at the kit's current component sum so the existing price is
+     * preserved until it is overridden on the kit form.
+     *
+     * @param int $item_kit_id The kit being saved.
+     * @param array $item_kit_data The kit data that was just saved.
+     * @return void
+     */
+    private function _sync_kit_item(int $item_kit_id, array $item_kit_data): void    // TODO: Hungarian notation
+    {
+        $kit_item_id = (int) ($item_kit_data['item_id'] ?? 0);
+        $item_info = $kit_item_id > 0 ? $this->item->get_info($kit_item_id) : null;
+        $is_linked = $item_info !== null && (int) ($item_info->item_id ?? 0) === $kit_item_id;
+
+        // The kit's component totals are used as the default bundle price when
+        // the kit item is created, and as the cost of goods for the kit.
+        $totals = $this->db->query('SELECT COALESCE(SUM(i.unit_price * ki.quantity), 0) AS total_price,
+                COALESCE(SUM(i.cost_price * ki.quantity), 0) AS total_cost
+            FROM `ospos_item_kit_items` ki
+            INNER JOIN `ospos_items` i ON i.item_id = ki.item_id
+            WHERE ki.item_kit_id = ?', [$item_kit_id])->getRow();
+
+        $kit_price = $this->request->getPost('kit_price');
+
+        $item_data = [
+            'name'        => $item_kit_data['name'],
+            'description' => $item_kit_data['description'],
+            'item_number' => $item_kit_data['item_kit_number'],
+            'item_type'   => ITEM_KIT,
+            'stock_type'  => HAS_NO_STOCK
+        ];
+
+        if ($kit_price !== null && $kit_price !== '') {
+            $item_data['unit_price'] = parse_decimals($kit_price);
+        }
+
+        if ($is_linked) {
+            $this->db->table('items')->where('item_id', $kit_item_id)->update($item_data);
+            return;
+        }
+
+        // No usable linked item: create one so the kit is always sellable as a
+        // single line. A newly created kit item defaults to the component sum
+        // when no bundle price was entered.
+        $item_data['unit_price'] = $item_data['unit_price'] ?? (float) ($totals->total_price ?? 0);
+        $item_data['cost_price'] = (float) ($totals->total_cost ?? 0);
+        $item_data['category'] = '';
+        $item_data['deleted'] = 0;
+        $item_data['supplier_id'] = $item_kit_data['supplier_id'] ?? null;
+
+        $this->db->table('items')->insert($item_data);
+        $kit_item_id = $this->db->insertID();
+
+        $this->db->table('item_kits')
+            ->where('item_kit_id', $item_kit_id)
+            ->update(['item_id' => $kit_item_id]);
+
+        $item_kit_data['item_id'] = $kit_item_id;
+    }
+
+    /**
      * @param int $item_kit_id
      * @return string
      */
@@ -125,8 +193,8 @@ class Item_kits extends Secure_Controller
         $info = $this->item_kit->get_info($item_kit_id);
 
         if ($item_kit_id == NEW_ENTRY) {
-            $info->price_option = '0';
-            $info->print_option = PRINT_ALL;
+            $info->price_option = PRICE_OPTION_KIT;
+            $info->print_option = PRINT_KIT;
             $info->kit_item_id = 0;
             $info->item_number = '';
             $info->kit_discount = 0;
@@ -153,6 +221,12 @@ class Item_kits extends Secure_Controller
 
         $data['selected_kit_item_id'] = $info->kit_item_id;
         $data['selected_kit_item'] = ($item_kit_id > 0 && isset($info->kit_item_id)) ? $info->item_name : '';
+
+        // The bundle price lives on the linked kit item, so the form edits the
+        // item's unit_price directly. Selling the kit uses this price only;
+        // the components are deducted from stock and are not priced.
+        $kit_item_info = $info->kit_item_id > 0 ? $this->item->get_info((int) $info->kit_item_id) : null;
+        $data['kit_price'] = $kit_item_info !== null ? (float) $kit_item_info->unit_price : 0.0;
 
         return view("item_kits/form", $data);
     }
@@ -200,6 +274,12 @@ class Item_kits extends Secure_Controller
             } else {
                 $success = true;
             }
+
+            // Make sure the kit has an item representing it as a single
+            // sellable line, and push the kit name/number/bundle price to it.
+            // Component changes never touch that price: the kit is priced
+            // independently of the sum of its components.
+            $this->_sync_kit_item($item_kit_id, $item_kit_data);
 
             if ($new_item) {
                 return $this->response->setJSON([

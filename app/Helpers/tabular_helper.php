@@ -484,7 +484,9 @@ function get_item_data_row(object $item): array
     $definition_names = $attribute->get_definitions_by_flags($attribute::SHOW_IN_ITEMS, true);
 
     // Determine if item quantity is at or below reorder level for row highlighting
-    $low_stock = (is_numeric($item->quantity) && is_numeric($item->reorder_level) && $item->quantity <= $item->reorder_level) ? 1 : 0;
+    // (quantity is only selected when a stock location filter is active; guard
+    // against it being absent so a row render can never fatal the list)
+    $low_stock = (isset($item->quantity) && is_numeric($item->quantity) && is_numeric($item->reorder_level) && $item->quantity <= $item->reorder_level) ? 1 : 0;
 
     $columns = [
         'items.item_id' => $item->item_id,
@@ -494,7 +496,7 @@ function get_item_data_row(object $item): array
         'company_name'  => $item->company_name,    // TODO: This isn't in the items table. Should this be here?
         'cost_price'    => to_currency($item->cost_price),
         'unit_price'    => to_currency($item->unit_price),
-        'quantity'      => to_quantity_decimals($item->quantity),
+        'quantity'      => to_quantity_decimals($item->quantity ?? 0),
         'tax_percents'  => !$tax_percents ? '-' : $tax_percents,
         'item_pic'      => $image,
         'low_stock'     => $low_stock

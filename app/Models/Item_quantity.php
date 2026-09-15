@@ -86,9 +86,14 @@ class Item_quantity extends Model
     /**
      * changes to quantity of an item according to the given amount.
      * if $quantity_change is negative, it will be subtracted,
-     * if it is positive, it will be added to the current quantity
+     * if it is positive, it will be added to the current quantity.
+     *
+     * @param int    $item_id       The item ID.
+     * @param int    $location_id   The stock location ID.
+     * @param float  $quantity_change Amount to add (positive) or subtract (negative).
+     * @return bool True on success.
      */
-    public function change_quantity(int $item_id, int $location_id, int $quantity_change): bool
+    public function change_quantity(int $item_id, int $location_id, float $quantity_change): bool
     {
         $quantity_old = $this->get_item_quantity($item_id, $location_id);
         $quantity_new = $quantity_old->quantity + $quantity_change;

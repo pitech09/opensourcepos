@@ -6,6 +6,7 @@ use App\Models\Attribute;
 use App\Models\Customer;
 use App\Models\Dinner_table;
 use App\Models\Item;
+use App\Models\Item_batch;
 use App\Models\Item_kit_items;
 use App\Models\Item_quantity;
 use App\Models\Item_taxes;
@@ -42,6 +43,7 @@ class Sale_lib
     private Customer $customer;
     private Dinner_table $dinner_table;
     private Item $item;
+    private Item_batch $item_batch;
     private Item_kit_items $item_kit_items;
     private Item_quantity $item_quantity;
     private Item_taxes $item_taxes;
@@ -58,6 +60,7 @@ class Sale_lib
         $this->customer = model(Customer::class);
         $this->dinner_table = model(Dinner_table::class);
         $this->item = model(Item::class);
+        $this->item_batch = model(Item_batch::class);
         $this->item_kit_items = model(Item_kit_items::class);
         $this->item_quantity = model(Item_quantity::class);
         $this->item_taxes = model(Item_taxes::class);
@@ -1051,6 +1054,16 @@ class Sale_lib
         $stock_type = $item_info->stock_type;
 
         $price = $item_info->unit_price;
+        // In a FIFO system each batch carries its own unit_selling_price.
+        // When the item has batches, use the oldest remaining batch's selling
+        // price so that new receipts do not change the price of existing stock.
+        // Falls back to items.unit_price when no batches exist.
+        if ($stock_type == HAS_STOCK) {
+            $oldest_selling = $this->item_batch->get_oldest_batch_selling_price($item_id, $item_location);
+            if ($oldest_selling > 0) {
+                $price = (string) $oldest_selling;
+            }
+        }
         $cost_price = $item_info->cost_price;
         if ($price_override != null) {
             $price = $price_override;

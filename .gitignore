@@ -83,8 +83,13 @@ auth.json
 *.jpeg
 *.webp
 *copy*
+/app/Database/database.sql
+
+# CodeIgniter runtime data: written by the web server user (chmod 0600),
+# so it can be unreadable by the user running git and break `git add`/`git status`
 /writable/logs/*.log
 /writable/debugbar/*.json
-/app/Database/database.sql
 /writable/cache/settings
+/writable/session/*
+!/writable/session/index.html
 /.env.bak

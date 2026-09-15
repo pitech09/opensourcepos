@@ -868,6 +868,7 @@ class Sale extends Model
             $inventory = model('Inventory');
             $item = model(Item::class);
             $item_quantity = model(Item_quantity::class);
+            $item_batch = model(Item_batch::class);
 
             $items = $this->get_sale_items($sale_id)->getResultArray();
 
@@ -889,6 +890,17 @@ class Sale extends Model
 
                     // Update quantities
                     $item_quantity->change_quantity($item_data['item_id'], $item_data['item_location'], $item_data['quantity_purchased']);
+
+                    // Restore FIFO batch quantities: when a sale is deleted the
+                    // units consumed from each batch must be returned so the
+                    // batch table stays in sync with actual stock levels.
+                    $allocations = $item_batch->get_sale_breakdown($sale_id, $item_data['line']);
+                    foreach ($allocations as $alloc) {
+                        $this->db->table($item_batch::TABLE)
+                            ->where('batch_id', $alloc->batch_id)
+                            ->set('remaining', 'remaining + ' . $alloc->quantity, false)
+                            ->update();
+                    }
                 }
             }
         }

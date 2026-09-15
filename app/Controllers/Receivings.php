@@ -456,13 +456,42 @@ class Receivings extends Secure_Controller
     private function _reload(array $data = []): string    // TODO: Hungarian notation
     {
         $data['cart'] = $this->receiving_lib->get_cart();
+
+        // Location-aware receiving: warn the user when a cart line will be
+        // stored in the warehouse because the shop already holds stock of
+        // that item (the shop keeps selling its existing batch).
+        if ($this->receiving_lib->get_mode() == 'receive') {
+            foreach ($data['cart'] as $line => $item) {
+                $destination = $this->receiving->determine_destination_location(
+                    (int) $item['item_id'],
+                    (int) $item['item_location'],
+                    (float) $item['quantity']
+                );
+
+                if ($destination['redirected']) {
+                    $warehouse_name = $this->stock_location->get_location_name($destination['location_id']);
+                    $data['cart'][$line]['shop_stock_note'] = sprintf(
+                        lang('Receivings.shop_stock_redirect'),
+                        to_quantity_decimals($destination['shop_quantity']),
+                        $warehouse_name
+                    );
+                }
+            }
+        }
+
         $data['modes'] = ['receive' => lang('Receivings.receiving'), 'return' => lang('Receivings.return')];
         $data['mode'] = $this->receiving_lib->get_mode();
         $data['stock_locations'] = $this->stock_location->get_allowed_locations('receivings');
         $data['show_stock_locations'] = count($data['stock_locations']) > 1;
+
+        // Always provide the stock source so the receiving screen lets the
+        // user pick which location to receive into, even with only one location.
+        if (!empty($data['stock_locations'])) {
+            $data['stock_source'] = $this->receiving_lib->get_stock_source();
+        }
+
         if ($data['show_stock_locations']) {
             $data['modes']['requisition'] = lang('Receivings.requisition');
-            $data['stock_source'] = $this->receiving_lib->get_stock_source();
             $data['stock_destination'] = $this->receiving_lib->get_stock_destination();
         }
 

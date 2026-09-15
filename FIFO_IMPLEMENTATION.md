@@ -46,8 +46,8 @@ batch's `unit_selling_price`.
 
 ## Automatic selling price calculation
 
-When stock is received (`app/Models/Receiving.php::save()`), the item's
-selling price is recalculated automatically from the new batch's unit cost and
+When stock is received (`app/Models/Receiving.php::save()`), the selling price
+for the new batch is calculated automatically from the new batch's unit cost and
 a configurable profit margin:
 
     margin = (selling_price - cost) / selling_price
@@ -66,8 +66,10 @@ The margin is resolved by `_update_selling_price()`:
 Both keys live in `ospos_app_config` (inserted by the
 `20260908000000_FifoAutoPricing` migration with defaults 20% and the 3-tier
 example rules). The margin used is recorded on the item in the
-`ospos_items.last_margin_percent` column for debugging. The recalculated
-price is also stored as the new batch's `unit_selling_price`.
+`ospos_items.last_margin_percent` column for debugging. The recalculated price
+is stored as the new batch's `unit_selling_price` — **the item-level
+`items.unit_price` is NOT overwritten**, so existing (older) batches keep
+their own selling price and new receipts do not change the price of old stock.
 
 `sales_items.cost_price` stores the actual FIFO COGS per sale line (sum of the
 line's batch allocations); the per-batch split is kept in
@@ -109,9 +111,9 @@ migrations). Fresh installs get the tables and seed automatically.
 
 | Operation | File | Behaviour |
 |---|---|---|
-| Receiving (stock in) | `app/Models/Receiving.php::save()` | Creates a batch per received line at the entered purchase cost (`Item_batch::create_batch()`). Also recalculates the item's selling price from the batch cost and the configured margin rules (`_update_selling_price()`), updating `items.unit_price`, `items.last_margin_percent` and the batch's selling price. |
+| Receiving (stock in) | `app/Models/Receiving.php::save()` | Creates a batch per received line at the entered purchase cost (`Item_batch::create_batch()`). The batch's `unit_selling_price` is calculated from the batch cost and the configured margin rules (`_update_selling_price()`). The item-level `items.unit_price` is NOT overwritten — each batch keeps its own price so new receipts do not change the selling price of existing (older) inventory. Only `items.last_margin_percent` is updated (for debugging). |
 | Sale (stock out) | `app/Models/Sale.php::save()` | Consumes batches oldest-first (`Item_batch::allocate_fifo()`) and records the per-batch split in `ospos_sales_items_batches` (`record_sale_allocation()`). Runs inside the sale's transaction. |
-| Sale return (stock in) | `app/Models/Sale.php::save()` | Creates a new batch for the returned quantity, costed at the item's last known FIFO unit cost (falls back to cost price) so FIFO order is preserved. |
+| Sale return (stock in) | `app/Models/Sale.php::save()` | Creates a new batch for the returned quantity, costed at the item's last known FIFO unit cost (falls back to cost price). The new batch's selling price is the oldest remaining batch's unit_selling_price (so new receipts do not change the return price). FIFO order is preserved. |
 | Manual quantity edit | `app/Controllers/Items.php::save()` | Positive delta → new batch; negative delta → FIFO consumption (`consume_fifo()`). |
 | Inventory adjustment ( +/- ) | `app/Controllers/Items.php::postSaveInventory()` | Same as above for the "new quantity" adjustment dialog. |
 | CSV items import | `app/Controllers/Items.php` (location quantity import) | Same delta-based batch sync. |
@@ -156,6 +158,13 @@ from batches.
    pre-FIFO lines use stored cost, post-FIFO lines use batch cost.
 8. Margin rules: change `margin_quantity_rules` / `default_margin_percent` in
    Configuration, then receive quantities in different ranges and verify the
-   recalculated `unit_price` (e.g. cost 2.00 @ qty 100 with 15% → 2.35) and
-   `last_margin_percent`.
+   recalculated batch `unit_selling_price` (e.g. cost 2.00 @ qty 100 with
+   15% → 2.35) and `last_margin_percent`.
 9. Rounding: selling price is `round(cost / (1 - margin/100), 2)`.
+10. **New stock does not change old stock price**: receive Batch A (cost 2.00 →
+    selling 2.50), then receive Batch B (cost 5.00 → selling 6.25). Verify
+    `items.unit_price` is NOT overwritten by Batch B. Sell from Batch A and
+    confirm the sale uses 2.50 (Batch A's unit_selling_price), not 6.25.
+    Return an item and confirm the return batch uses 2.50, not 6.25. Delete the
+    receiving and confirm the batch is removed from `item_batches`. Delete a
+    sale and confirm the batch `remaining` is restored.

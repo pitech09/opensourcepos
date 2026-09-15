@@ -49,7 +49,7 @@ if (isset($success)) {
                 <?= form_dropdown('mode', $modes, $mode, ['onchange' => "$('#mode_form').submit();", 'class' => 'selectpicker show-menu-arrow', 'data-style' => 'btn-default btn-sm', 'data-width' => 'fit']) ?>
             </li>
 
-            <?php if ($show_stock_locations) { ?>
+            <?php if (!empty($stock_locations)) { ?>
                 <li class="pull-left">
                     <label class="control-label"><?= lang(ucfirst($controller_name) . '.stock_source') ?></label>
                 </li>
@@ -57,7 +57,7 @@ if (isset($success)) {
                     <?= form_dropdown('stock_source', $stock_locations, $stock_source, ['onchange' => "$('#mode_form').submit();", 'class' => 'selectpicker show-menu-arrow', 'data-style' => 'btn-default btn-sm', 'data-width' => 'fit']) ?>
                 </li>
 
-                <?php if ($mode == 'requisition') { ?>
+                <?php if ($show_stock_locations && $mode == 'requisition') { ?>
                     <li class="pull-left">
                         <label class="control-label"><?= lang(ucfirst($controller_name) . '.stock_destination') ?></label>
                     </li>
@@ -66,8 +66,14 @@ if (isset($success)) {
                     </li>
             <?php
                 }
-            }
-            ?>
+            } ?>
+
+            <!-- Stock Transfer Button -->
+            <li class="pull-left" style="margin-left: 10px;">
+                <a href="<?= base_url('stock_transfer') ?>" class="btn btn-warning btn-sm" title="<?= lang('Stock_transfer.title') ?>">
+                    <span class="glyphicon glyphicon-transfer"></span> <?= lang('Stock_transfer.title') ?>
+                </a>
+            </li>
         </ul>
     </div>
 
@@ -138,6 +144,9 @@ if (isset($success)) {
                         <td style="text-align: center;">
                             <?= esc($item['name'] . ' ' . implode(' ', [$item['attribute_values'], $item['attribute_dtvalues']])) ?><br>
                             <?= '[' . to_quantity_decimals($item['in_stock']) . ' in ' . esc($item['stock_name']) . ']' ?>
+                            <?php if (!empty($item['shop_stock_note'])) { ?>
+                                <br><small class="text-warning"><?= esc($item['shop_stock_note']) ?></small>
+                            <?php } ?>
                             <?= form_hidden('location', (string)$item['item_location']) ?>
                         </td>
 

@@ -98,6 +98,73 @@ class Receiving extends Model
     }
 
     /**
+     * Determines the destination stock location for a received line using the
+     * location-aware receiving rules:
+     *
+     *  1. When the user explicitly selected a location other than the shop in
+     *     the receiving screen's stock source dropdown, that override is
+     *     respected as-is.
+     *  2. When the shop already has stock of the item (and this is a positive
+     *     receiving), the new stock is placed in the warehouse so the shop's
+     *     existing batch keeps selling at its own price.
+     *  3. When the shop is empty, the stock goes directly to the shop.
+     *
+     * @param int $item_id The item being received.
+     * @param int $selected_location The location selected in the receiving UI.
+     * @param float $quantity The quantity being received (negative for returns,
+     * which are never redirected).
+     * @return array {location_id: int, shop_location_id: int, shop_quantity: float, redirected: bool}
+     */
+    public function determine_destination_location(int $item_id, int $selected_location, float $quantity = 0): array
+    {
+        $appconfig = model(Appconfig::class);
+        $stock_location = model(Stock_location::class);
+        $item_quantity = model(Item_quantity::class);
+
+        $shop_location_id = (int) $appconfig->get_value('default_shop_location_id', '0');
+
+        if ($shop_location_id <= 0) {
+            $shop_location_id = $stock_location->get_default_location_id('receivings');
+        }
+
+        $shop_quantity = (float) $item_quantity->get_item_quantity($item_id, $shop_location_id)->quantity;
+
+        // Manual override: any explicitly chosen non-shop location is respected.
+        if ($selected_location != $shop_location_id || $quantity <= 0) {
+            return [
+                'location_id'      => $selected_location,
+                'shop_location_id' => $shop_location_id,
+                'shop_quantity'    => $shop_quantity,
+                'redirected'       => false
+            ];
+        }
+
+        if ($shop_quantity > 0) {
+            $warehouse_location_id = (int) $appconfig->get_value('default_warehouse_location_id', '0');
+
+            if ($warehouse_location_id <= 0 || $warehouse_location_id == $shop_location_id) {
+                $warehouse_location_id = $stock_location->get_warehouse_location_id($shop_location_id);
+            }
+
+            if ($warehouse_location_id > 0) {
+                return [
+                    'location_id'      => $warehouse_location_id,
+                    'shop_location_id' => $shop_location_id,
+                    'shop_quantity'    => $shop_quantity,
+                    'redirected'       => true
+                ];
+            }
+        }
+
+        return [
+            'location_id'      => $shop_location_id,
+            'shop_location_id' => $shop_location_id,
+            'shop_quantity'    => $shop_quantity,
+            'redirected'       => false
+        ];
+    }
+
+    /**
      * @throws ReflectionException
      */
     public function save_value(array $items, int $supplier_id, int $employee_id, string $comment, string $reference, ?string $payment_type, int $receiving_id = NEW_ENTRY): int    // TODO: $receiving_id gets overwritten before it's evaluated. It doesn't make sense to pass this here.
@@ -134,6 +201,20 @@ class Receiving extends Model
         foreach ($items as $line => $item_data) {
             $config = config(OSPOS::class)->settings;
             $cur_item_info = $item->get_info($item_data['item_id']);
+
+            // Location-aware receiving: decide where this line is stored.
+            // If the shop already has stock of the item, new stock goes to the
+            // warehouse so the shop keeps selling its existing (older, cheaper)
+            // batch at its own price. If the shop is empty, the stock goes to
+            // the shop directly. An explicitly chosen non-shop location (via
+            // the stock source dropdown) is always respected as an override.
+            $destination = $this->determine_destination_location(
+                (int) $item_data['item_id'],
+                (int) $item_data['item_location'],
+                (float) $item_data['quantity']
+            );
+            $item_data['item_location'] = $destination['location_id'];
+            $shop_had_stock = $destination['shop_quantity'] > 0;
 
             $receivings_items_data = [
                 'receiving_id'       => $receiving_id,
@@ -198,6 +279,23 @@ class Receiving extends Model
                     $item_data['price'],
                     $cur_item_info->unit_price
                 );
+
+                // When the shop had no stock before this receiving, the new
+                // batch becomes the current sellable stock: reflect the new
+                // cost and selling price on the item master so the register
+                // default and reports match. When the shop still has stock,
+                // the master prices stay untouched — the old shop batch's
+                // prices remain in effect and only this new batch (in the
+                // warehouse) carries the new cost/price.
+                if (!$shop_had_stock)
+                {
+                    $this->db->table('items')
+                        ->where('item_id', $item_data['item_id'])
+                        ->update([
+                            'cost_price' => $item_data['price'],
+                            'unit_price' => $selling_price
+                        ]);
+                }
 
                 $item_batch->create_batch(
                     $item_data['item_id'],
@@ -288,20 +386,24 @@ class Receiving extends Model
                 $selling_price = round($unit_cost * (1 + $percent / 100), 2);
             }
         } elseif ($percent > 0 && $percent < 100) {
-            $selling_price = round($unit_cost / (1 - $percent / 100), 2);
+                    $selling_price = round($unit_cost / (1 - $percent / 100), 2);
         }
 
         if ($selling_price > 0) {
             $selling_price = ceil($selling_price * 2) / 2;
 
             // Record the effective margin of the rounded price as a percentage
-            // of the selling price
+            // of the selling price for debugging purposes only. We do NOT
+            // overwrite items.unit_price here because that would cause new
+            // receipts to change the selling price of existing (older) batches —
+            // in a proper FIFO system each batch carries its own unit_selling_price
+            // and the item-level unit_price must be left untouched so that old
+            // stock continues to sell (and be returned) at its own price.
             $effective_margin = ($selling_price - $unit_cost) / $selling_price * 100;
 
             $this->db->table('items')
                 ->where('item_id', $item_id)
                 ->update([
-                    'unit_price'          => $selling_price,
                     'last_margin_percent' => $effective_margin
                 ]);
 
@@ -371,6 +473,13 @@ class Receiving extends Model
         // Delete all items
         $builder = $this->db->table('receivings_items');
         $builder->delete(['receiving_id' => $receiving_id]);
+
+        // Delete the FIFO batches that were created by this receiving so that
+        // the batch table stays in sync with actual stock levels.
+        $item_batch = model(Item_batch::class);
+        $this->db->table($item_batch::TABLE)
+            ->where('receiving_id', $receiving_id)
+            ->delete();
 
         // Delete sale itself
         $builder = $this->db->table('receivings');

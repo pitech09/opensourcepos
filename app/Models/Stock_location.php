@@ -148,7 +148,34 @@ class Stock_location extends Model
      * @param int $location_id
      * @return string
      */
+    /**
+     * Gets the first undeleted stock location that is not the given shop
+     * location. Used as a fallback warehouse for location-aware receiving
+     * when no default_warehouse_location_id config key is set.
+     *
+     * @param int $shop_location_id The location to exclude (the shop).
+     * @return int The location_id of the warehouse, or 0 when none exists.
+     */
+    public function get_warehouse_location_id(int $shop_location_id = 0): int
+    {
+        $builder = $this->db->table('stock_locations');
+        $builder->select('location_id');
+        $builder->where('deleted', 0);
+
+        if ($shop_location_id > 0) {
+            $builder->where('location_id !=', $shop_location_id);
+        }
+
+        $builder->orderBy('location_id', 'ASC');
+        $builder->limit(1);
+        $row = $builder->get()->getRow();
+
+        return $row !== null ? (int) $row->location_id : 0;
+    }
+
     public function get_location_name(int $location_id): string
+
+
     {
         $builder = $this->db->table('stock_locations');
         $builder->where('location_id', $location_id);

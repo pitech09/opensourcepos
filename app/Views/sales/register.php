@@ -607,11 +607,14 @@ helper('url');
 </div>
 
 <style>
-    /* Highlight for keyboard-selected item in the autocomplete search results */
+    /* Highlight for keyboard-selected item in the autocomplete search results.
+       Keep dark text on the light-gray background so the active suggestion
+       stays readable (jQuery UI's default white text is invisible on #f5f5f5). */
     ul.ui-autocomplete li.ui-menu-item .ui-menu-item-wrapper.ui-state-active {
         background-color: #f5f5f5;
         border-left: 3px solid #007bff;
         font-weight: bold;
+        color: #333333;
     }
 
     /* Highlight for the selected sale line (last added or clicked) */

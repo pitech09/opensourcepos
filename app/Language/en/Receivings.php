@@ -52,6 +52,7 @@ return [
     "supplier_email"               => "Email",
     "supplier_location"            => "Location",
     "total"                        => "Total",
+    "shop_stock_redirect"          => "Existing stock in shop: %s units. New stock will be placed in the %s.",
     "transaction_failed"           => "Receivings transaction(s) failed.",
     "unable_to_add_item"           => "Item add to Receiving failed.",
     "unsuccessfully_updated"       => "Receiving update failed.",

@@ -342,17 +342,150 @@ class Item_batch extends Model
             return 0;
         }
 
-        $item = $this->db->table('items')
-            ->select('cost_price, unit_price')
-            ->where('item_id', $item_id)
-            ->get()->getRow();
+        // Use the oldest remaining batch's selling price for the new batch
+        // so that new receipts do not change the selling price of existing
+        // stock. Falls back to the item's unit_price, then to 0.
+        $item = $this->db->table('items')->select('unit_price')
+            ->where('item_id', $item_id)->get()->getRow();
+        $oldest_selling = $this->get_oldest_batch_selling_price($item_id, $location_id);
+        $unit_selling = $oldest_selling > 0 ? $oldest_selling : ((float) ($item->unit_price ?? 0));
 
         return $this->create_batch(
             $item_id,
             $location_id,
             $quantity,
             $unit_cost ?? $this->get_last_fifo_unit_cost($item_id, $location_id),
-            (float) ($item->unit_price ?? 0)
+            $unit_selling
         );
+    }
+
+    /**
+     * Gets the unit_selling_price of the oldest remaining batch (positive
+     * remaining quantity) for an item at a location. This is the price that
+     * the oldest stock should be (and was) sold at, ensuring that receiving
+     * new stock at a different cost/ margin does not change the price of
+     * existing inventory.
+     *
+     * @param int $item_id The item to look up.
+     * @param int $location_id The stock location to look up.
+     * @return float The oldest batch's unit_selling_price, or 0 when no
+     *  remaining batches exist.
+     */
+    public function get_oldest_batch_selling_price(int $item_id, int $location_id): float
+
+    {
+        $builder = $this->db->table(self::TABLE);
+        $row = $builder
+            ->select('unit_selling_price')
+            ->where([
+                'item_id'     => $item_id,
+                'location_id' => $location_id
+            ])
+            ->where('remaining >', 0)
+            ->orderBy('created_at', 'ASC')
+            ->orderBy('batch_id', 'ASC')
+            ->limit(1)
+            ->get()->getRow();
+
+        return $row !== null ? (float) $row->unit_selling_price : 0.0;
+    }
+
+    /**
+     * Returns the oldest active batch (remaining > 0) for an item across all
+     * stock locations. Ordering matches allocate_fifo() exactly (created_at
+     * ASC, batch_id ASC), so this is the batch the register will sell from
+     * next, whichever location it sits in.
+     *
+     * @param int $item_id The item to look up.
+     * @return array|null {batch_id, unit_cost_price, unit_selling_price} or
+     *  null when the item has no active batches.
+     */
+    public function get_oldest_active_batch(int $item_id): ?array
+    {
+        $row = $this->db->table(self::TABLE)
+            ->select('batch_id, unit_cost_price, unit_selling_price')
+            ->where('item_id', $item_id)
+            ->where('remaining >', 0)
+            ->orderBy('created_at', 'ASC')
+            ->orderBy('batch_id', 'ASC')
+            ->limit(1)
+            ->get()->getRowArray();
+
+        return $row ?: null;
+    }
+
+    /**
+     * Builds a prefix-aware derived-table SQL fragment returning, for every
+     * item that has at least one active batch (remaining > 0), the oldest
+     * active batch's unit cost and selling price. Intended for use as a LEFT
+     * JOIN target so list views can display prices that follow FIFO stock
+     * instead of the static item master record. Uses the anti-join pattern
+     * (no earlier active batch exists) which is MySQL/MariaDB-version-safe
+     * and served by idx_item_batches_fifo.
+     *
+     * @return string SQL fragment aliased for a "fifo" derived table.
+     */
+    public function get_oldest_active_batch_sql(): string
+    {
+        $table = $this->db->prefixTable(self::TABLE);
+
+        return "SELECT b.item_id, b.unit_cost_price, b.unit_selling_price
+            FROM $table b
+            LEFT JOIN $table newer
+                ON newer.item_id = b.item_id
+                AND newer.remaining > 0
+                AND (newer.created_at < b.created_at
+                    OR (newer.created_at = b.created_at AND newer.batch_id < b.batch_id))
+            WHERE b.remaining > 0
+                AND newer.batch_id IS NULL";
+    }
+
+    /**
+     * Transfers stock between locations using FIFO.
+     * Consumes batches from source location oldest-first and adds them
+     * to destination location. The destination batches keep the same
+     * unit_selling_price and unit_cost_price as the source batches.
+     *
+     * @param int $item_id The item to transfer.
+     * @param int $from_location_id Source location.
+     * @param int $to_location_id Destination location.
+     * @param float $quantity Quantity to transfer.
+     * @return bool True if transfer succeeded, false otherwise.
+     */
+    public function transfer_fifo(int $item_id, int $from_location_id, int $to_location_id, float $quantity): bool
+    {
+        if($quantity <= 0)
+        {
+            return false;
+        }
+
+        $allocations = $this->allocate_fifo($item_id, $from_location_id, $quantity);
+        if(empty($allocations))
+        {
+            return false;
+        }
+
+        // Update source location batches (consume)
+        foreach($allocations as $allocation)
+        {
+            $this->db->table(self::TABLE)
+                ->where('batch_id', $allocation['batch_id'])
+                ->set('remaining', 'remaining - ' . $allocation['quantity'], false)
+                ->update();
+        }
+
+        // Add to destination location batches (same prices as source batches)
+        foreach($allocations as $allocation)
+        {
+            $this->create_batch(
+                $item_id,
+                $to_location_id,
+                $allocation['quantity'],
+                $allocation['unit_cost_price'],
+                $allocation['unit_selling_price']
+            );
+        }
+
+        return true;
     }
 }

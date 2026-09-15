@@ -270,8 +270,8 @@ class Item extends Model
             $builder->select('MAX(items.supplier_id) AS supplier_id');
             $builder->select('MAX(items.item_number) AS item_number');
             $builder->select('MAX(items.description) AS description');
-            $builder->select('MAX(items.cost_price) AS cost_price');
-            $builder->select('MAX(items.unit_price) AS unit_price');
+            $builder->select('COALESCE(MAX(fifo.unit_cost_price), MAX(items.cost_price)) AS cost_price');
+            $builder->select('COALESCE(MAX(fifo.unit_selling_price), MAX(items.unit_price)) AS unit_price');
             $builder->select('MAX(items.reorder_level) AS reorder_level');
             $builder->select('MAX(items.receiving_quantity) AS receiving_quantity');
             $builder->select('MAX(items.pic_filename) AS pic_filename');
@@ -304,6 +304,17 @@ class Item extends Model
 
         $builder->join('suppliers AS suppliers', 'suppliers.person_id = items.supplier_id', 'left');
         $builder->join('inventory AS inventory', 'inventory.trans_items = items.item_id');
+
+        // Dynamic FIFO pricing: join the oldest active batch (remaining > 0)
+        // per item so the Items list shows the cost and selling price of the
+        // stock the register will actually sell next, instead of the static
+        // master record. Falls back to the master prices via COALESCE when
+        // the item has no active batches. The derived table holds one row per
+        // item, so it cannot multiply the grouped rows or change the count.
+        if (!$count_only) {
+            $item_batch = model(Item_batch::class);
+            $builder->join('(' . $item_batch->get_oldest_active_batch_sql() . ') AS fifo', 'fifo.item_id = items.item_id', 'left');
+        }
 
         if ($filters['stock_location_id'] > -1) {
             $builder->join('item_quantities AS item_quantities', 'item_quantities.item_id = items.item_id');

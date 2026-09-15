@@ -4,7 +4,7 @@ namespace App\Database\Migrations;
 
 use CodeIgniter\Database\Migration;
 
-class Migration_FixBatchTimestamps extends Migration
+class Migration_ItemsListFifoIndex extends Migration
 {
     /**
      * Perform a migration step.
@@ -12,7 +12,7 @@ class Migration_FixBatchTimestamps extends Migration
     public function up(): void
     {
         helper('migration');
-        executeScriptWithTransaction(APPPATH . 'Database/Migrations/sqlscripts/3.4.4_fix_batch_timestamps.sql');
+        executeScriptWithTransaction(APPPATH . 'Database/Migrations/sqlscripts/3.4.6_items_list_fifo_index.sql');
     }
 
     /**
@@ -20,6 +20,6 @@ class Migration_FixBatchTimestamps extends Migration
      */
     public function down(): void
     {
-        // This migration is a data fix and cannot be reversed
+        $this->db->query('ALTER TABLE `ospos_item_batches` DROP INDEX `idx_item_batches_oldest_active`');
     }
 }
